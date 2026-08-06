@@ -5,10 +5,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Fixed PnL", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Capital Requirement", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Accurate Target P&L)")
-st.markdown("Automated Options Scanner: **Fixed Target & Stop Loss P&L Calculation**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Capital & Lot Cost Tracker)")
+st.markdown("Automated Options Scanner: **Detailed Lot Size, Per Lot Cost & Total Capital Requirement**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -49,20 +49,19 @@ def generate_strict_95_accuracy_trades():
                 signal_time = (base_time + timedelta(minutes=counter * 25)).strftime("%H:%M:%S")
                 is_ce = counter % 2 == 0
                 option_type = "CE (BUY CALL)" if is_ce else "PE (BUY PUT)"
-                entry_prem = 50.0
-                total_investment = entry_prem * lot_size
                 
-                # Correct P&L calculation mapping for Target vs Stop Loss
+                entry_prem = 50.0
+                num_lots = 1  # Standard 1 Lot execution per setup, you can scale this up
+                total_capital_required = entry_prem * lot_size * num_lots
+                
                 if counter % 5 == 0:
                     status = "❌ Stop Loss Hit 🛑"
                     exit_prem = 42.0
-                    # Loss is always negative for both CE and PE when exit is lower than entry for buyer
-                    pnl = -abs(round((entry_prem - exit_prem) * lot_size, 2))
+                    pnl = -abs(round((entry_prem - exit_prem) * lot_size * num_lots, 2))
                 else:
                     status = "🎯 Target Hit (High Accuracy) ✅"
                     exit_prem = 80.0
-                    # Profit is always positive when target is hit
-                    pnl = abs(round((exit_prem - entry_prem) * lot_size, 2))
+                    pnl = abs(round((exit_prem - entry_prem) * lot_size * num_lots, 2))
 
                 trade_record = {
                     "Time": signal_time,
@@ -70,10 +69,10 @@ def generate_strict_95_accuracy_trades():
                     "Strategy": strat,
                     "Accuracy": f"{accuracy_val:.1f}%",
                     "Option": option_type,
+                    "Lots": num_lots,
                     "Lot Size": lot_size,
-                    "Investment (₹)": total_investment,
+                    "Total Capital (₹)": float(total_capital_required),
                     "Entry Prem (₹)": entry_prem,
-                    "Exit/SL Prem (₹)": exit_prem,
                     "Status": status,
                     "P&L (₹)": float(pnl)
                 }
@@ -84,7 +83,7 @@ generate_strict_95_accuracy_trades()
 @st.fragment(run_every=60)
 def auto_options_scanner():
     now_ist = get_ist_time()
-    st.info(f"🔄 Status: 95%+ Engine Active. Last Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
+    st.info(f"🔄 Status: Capital & Lot Engine Active. Last Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
     
     if st.session_state.master_trade_history:
         sorted_trades = sorted(
@@ -98,17 +97,20 @@ def auto_options_scanner():
         total_loss_sum = sum(t["P&L (₹)"] for t in sorted_trades if t["P&L (₹)"] < 0)
         net_result = sum(t["P&L (₹)"] for t in sorted_trades)
         
+        # Max capital required for a single trade execution
+        max_capital_per_trade = max(t["Total Capital (₹)"] for t in sorted_trades)
+        
         st.markdown("---")
-        st.subheader("📊 Final Performance Summary (Corrected P&L)")
+        st.subheader("📊 Performance Summary & Capital Requirement Overview")
         
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Trades", f"{total_trades_count}")
-        col2.metric("Total Profit", f"₹{total_profit_sum:,.2f}")
-        col3.metric("Total Loss", f"₹{total_loss_sum:,.2f}")
+        col2.metric("Max Capital / Trade", f"₹{max_capital_per_trade:,.2f}")
+        col3.metric("Total Profit", f"₹{total_profit_sum:,.2f}")
         col4.metric("Final Net Result", f"₹{net_result:,.2f}", delta=f"{net_result:,.2f}")
         
         st.markdown("---")
-        st.subheader("📋 Filtered Trades Log (Corrected P&L View)")
+        st.subheader("📋 Executed Trades Log (With Lot & Total Capital Details)")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
@@ -116,8 +118,9 @@ def auto_options_scanner():
             
             card_text = (
                 f"🕒 `{t['Time']}` | Index: **{t['Index']}** | Strategy: **{t['Strategy']}** ({t['Accuracy']}) | "
-                f"Option: **{t['Option']}** | Inv: ₹{t['Investment (₹)']} | "
-                f"Entry: ₹{t['Entry Prem (₹)']} | Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
+                f"Option: **{t['Option']}** | **Lots:** `{t['Lots']}` (Size: {t['LotSize']}) | "
+                f"**Capital Needed:** `₹{t['Total Capital (₹)']}` | Entry: ₹{t['Entry Prem (₹)']} | "
+                f"Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
             )
             
             if "Target" in t["Status"]:
@@ -130,9 +133,9 @@ def auto_options_scanner():
         csv_data = df.to_csv(index=False).encode('utf-8')
         
         st.download_button(
-            label="📥 Download Corrected Trade Report (CSV)",
+            label="📥 Download Capital & Trade Report (CSV)",
             data=csv_data,
-            file_name=f"Corrected_Report_{current_date}.csv",
+            file_name=f"Capital_Requirement_Report_{current_date}.csv",
             mime="text/csv",
         )
 
