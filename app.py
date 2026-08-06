@@ -5,10 +5,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Full Day Log", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Reverse Chronological Log", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Full Day Persistent History)")
-st.markdown("Automated Options Scanner: **Morning-to-End Permanent Log + CSV Download**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Latest Trade on Top)")
+st.markdown("Automated Options Scanner: **Latest-First Log + CSV Download**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -136,13 +136,15 @@ def auto_options_scanner():
     st.info(f"🔄 Auto-scanning Options... Last Refreshed at: **{get_ist_time()} IST** (Refreshes every 60s)")
     
     if st.session_state.master_trade_history:
+        # Sorted by Time in Reverse Order (Latest / Current time trade on top)
         sorted_trades = sorted(
             st.session_state.master_trade_history, 
-            key=lambda x: (1 if "Running" in x["Status"] else 0, x["Time"])
+            key=lambda x: x["Time"], 
+            reverse=True
         )
         
         st.markdown("---")
-        st.subheader("📋 Morning to Current Trade Flow (All Signals Logged)")
+        st.subheader("📋 Latest Trades on Top (Reverse Chronological Order)")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
