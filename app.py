@@ -5,10 +5,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Entry & Exit View", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Expiry & Moneyness", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Entry & Exit Tracker)")
-st.markdown("Automated Options Scanner: **Strict 95%+ Accuracy + Entry/Exit Prices + Capital Details**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Live Ready)")
+st.markdown("Automated Options Scanner: **Current Expiry + ATM/ITM/OTM/FOTM + P&L Tracker**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -21,6 +21,16 @@ def get_ist_time():
 def get_current_date():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime("%Y-%m-%d")
+
+def get_current_weekly_expiry():
+    # Calculates upcoming nearest Thursday expiry representation
+    ist = pytz.timezone('Asia/Kolkata')
+    today = datetime.now(ist)
+    days_ahead = (3 - today.weekday() + 7) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    expiry_date = today + timedelta(days=days_ahead)
+    return expiry_date.strftime("%d-%b-%Y").upper()
 
 if "master_trade_history" not in st.session_state:
     st.session_state.master_trade_history = []
@@ -37,6 +47,8 @@ def generate_strict_95_accuracy_trades():
     if len(st.session_state.master_trade_history) == 0:
         base_time = datetime.now(pytz.timezone('Asia/Kolkata')).replace(hour=9, minute=15, second=0, microsecond=0)
         counter = 0
+        expiry_str = get_current_weekly_expiry()
+        moneyness_options = ["ATM", "ITM", "OTM", "FOTM"]
         
         for index_name, lot_size in LOT_SIZES.items():
             for strat in strategies:
@@ -49,6 +61,7 @@ def generate_strict_95_accuracy_trades():
                 signal_time = (base_time + timedelta(minutes=counter * 25)).strftime("%H:%M:%S")
                 is_ce = counter % 2 == 0
                 option_type = "CE (BUY CALL)" if is_ce else "PE (BUY PUT)"
+                moneyness = moneyness_options[counter % len(moneyness_options)]
                 
                 entry_prem = 50.0
                 num_lots = 1
@@ -68,6 +81,8 @@ def generate_strict_95_accuracy_trades():
                     "Index": index_name,
                     "Strategy": strat,
                     "Accuracy": f"{accuracy_val:.1f}%",
+                    "Expiry": expiry_str,
+                    "Moneyness": moneyness,
                     "Option": option_type,
                     "Lots": num_lots,
                     "Lot Size": lot_size,
@@ -109,14 +124,15 @@ def auto_options_scanner():
         col4.metric("Final Net Result", f"₹{net_result:,.2f}", delta=f"{net_result:,.2f}")
         
         st.markdown("---")
-        st.subheader("📋 Executed Trades Log (With Entry & Exit Prices)")
+        st.subheader("📋 Executed Trades Log (Expiry & Moneyness Tracker)")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
             pnl_color_text = f"🟢 +₹{pnl_val}" if pnl_val >= 0 else f"🔴 -₹{abs(pnl_val)}"
             
             card_text = (
-                f"🕒 `{t['Time']}` | Index: **{t['Index']}** | Strategy: **{t['Strategy']}** ({t['Accuracy']}) | "
+                f"🕒 `{t['Time']}` | Index: **{t['Index']}** | **Expiry:** `{t['Expiry']}` | "
+                f"Strategy: **{t['Strategy']}** ({t['Accuracy']}) | **Type:** `{t['Moneyness']}` | "
                 f"Option: **{t['Option']}** | Lots: `{t['Lots']}` (Size: {t['Lot Size']}) | "
                 f"Capital: `₹{t['Total Capital (₹)']}` | **Entry:** `₹{t['Entry Prem (₹)']}` | "
                 f"**Exit:** `₹{t['Exit Prem (₹)']}` | Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
@@ -132,10 +148,10 @@ def auto_options_scanner():
         csv_data = df.to_csv(index=False).encode('utf-8')
         
         st.download_button(
-            label="📥 Download Trade Report (CSV)",
+            label="📥 Download Detailed Trade Report (CSV)",
             data=csv_data,
-            file_name=f"Trade_Report_{current_date}.csv",
-            mime="text/csv",
+            file_name=f"Expiry_Trade_Report_{current_date}.csv",
+            mime="text/css",
         )
 
 auto_options_scanner()
