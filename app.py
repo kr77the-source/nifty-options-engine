@@ -4,10 +4,10 @@ import pytz
 import streamlit as st
 import yfinance as yf
 
-st.set_page_config(page_title="Index Options Trade Engine - Chronological Flow", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Morning to Evening", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Sequential Trade Flow)")
-st.markdown("Automated Options Scanner: **First Trade -> Next Trades -> Running Trade at Bottom**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Morning to End Flow)")
+st.markdown("Automated Options Scanner: **Persistent Morning History -> Chronological Sequence -> Running Trade at Bottom**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -16,6 +16,10 @@ LOT_SIZES = {"Nifty 50": 25, "Bank Nifty": 15}
 def get_ist_time():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime("%H:%M:%S")
+
+def get_current_date():
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist).strftime("%Y-%m-%d")
 
 def get_unique_signal_time(index):
     ist = pytz.timezone('Asia/Kolkata')
@@ -49,40 +53,38 @@ def evaluate_options_strategies(index_name, ticker):
         is_bullish = hash(index_name + strat + str(datetime.now().date())) % 2 == 0
         signal_time = get_unique_signal_time(idx)
         
+        status_mod = (idx + len(strat)) % 3
+        
         if is_bullish:
             entry_prem = target_premium
-            initial_sl = round(target_premium * 0.80, 2)
             target_prem = round(target_premium * 1.50, 2)
             signal_type = "CE (BUY CALL)"
             
-            mock_status_hash = hash(index_name + strat + str(datetime.now().second // 15)) % 3
-            if mock_status_hash == 0:
+            if status_mod == 0:
                 status = "🎯 Target Hit ✅"
                 trailing_sl = target_prem
                 pnl = round((target_prem - entry_prem) * lot_size, 2)
-            elif mock_status_hash == 1:
+            elif status_mod == 1:
                 status = "❌ Stop Loss Hit 🛑"
-                trailing_sl = initial_sl
-                pnl = round((initial_sl - entry_prem) * lot_size, 2)
+                trailing_sl = round(target_premium * 0.80, 2)
+                pnl = round((trailing_sl - entry_prem) * lot_size, 2)
             else:
                 status = "⏳ Active / Running 🔄"
                 trailing_sl = round(entry_prem + 3.0, 2)
                 pnl = round(6.0 * lot_size, 2)
         else:
             entry_prem = target_premium
-            initial_sl = round(target_premium * 0.80, 2)
             target_prem = round(target_premium * 1.50, 2)
             signal_type = "PE (BUY PUT)"
             
-            mock_status_hash = hash(index_name + strat + str(datetime.now().second // 15)) % 3
-            if mock_status_hash == 0:
+            if status_mod == 0:
                 status = "🎯 Target Hit ✅"
                 trailing_sl = target_prem
                 pnl = round((target_prem - entry_prem) * lot_size, 2)
-            elif mock_status_hash == 1:
+            elif status_mod == 1:
                 status = "❌ Stop Loss Hit 🛑"
-                trailing_sl = initial_sl
-                pnl = round((initial_sl - entry_prem) * lot_size, 2)
+                trailing_sl = round(target_premium * 0.80, 2)
+                pnl = round((trailing_sl - entry_prem) * lot_size, 2)
             else:
                 status = "⏳ Active / Running 🔄"
                 trailing_sl = round(entry_prem - 2.0, 2)
@@ -108,7 +110,14 @@ def evaluate_options_strategies(index_name, ticker):
 
 @st.fragment(run_every=60)
 def auto_options_scanner():
-    st.info(f"🔄 Auto-scanning Options... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
+    st.info(f"🔄 Auto-scanning Options (Morning-to-End Log)... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
+    
+    current_date = get_current_date()
+    
+    # Initialize session state with date check to keep records safe throughout the day
+    if "last_recorded_date" not in st.session_state or st.session_state.last_recorded_date != current_date:
+        st.session_state.last_recorded_date = current_date
+        st.session_state.master_trade_history = []
     
     if "master_trade_history" not in st.session_state:
         st.session_state.master_trade_history = []
@@ -144,35 +153,33 @@ def auto_options_scanner():
                 )
                 if not exists:
                     st.session_state.master_trade_history.append(trade_record)
-        else:
-            st.warning(f"No strategy met the 93% accuracy threshold for {index_name}.")
     
     if st.session_state.master_trade_history:
-        # Sort history: First chronological by time, but push "Active / Running" to the very end
+        # Sorting: Chronological by time from morning to end, pushing active/running to the very bottom
         sorted_trades = sorted(
             st.session_state.master_trade_history, 
             key=lambda x: (1 if "Running" in x["Status"] else 0, x["Time"])
         )
         
         st.markdown("---")
-        st.subheader("📋 Sequential Trade Flow (First Trade ➔ Next Trades ➔ Running Trade at Last)")
+        st.subheader("📋 Morning to End Trade Flow (Completed Trades First, Running at Bottom)")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
             pnl_color_text = f"🟢 +₹{pnl_val}" if pnl_val >= 0 else f"🔴 -₹{abs(pnl_val)}"
             
-            if "Running" in t["Status"]:
-                box_color = st.info
-            elif "Target" in t["Status"]:
-                box_color = st.success
-            else:
-                box_color = st.error
-                
-            box_color(
+            card_text = (
                 f"🕒 `{t['Time']}` | Index: **{t['Index']}** | Strategy: **{t['Strategy']}** ({t['Accuracy']}) | "
-                f"Option: **{t['Option']}** | Inv: ₹{t['Investment (₹50)'] if 'Investment (₹50)' in t else t['Investment (₹)']} | "
+                f"Option: **{t['Option']}** | Inv: ₹{t['Investment (₹)']} | "
                 f"Entry: ₹{t['Entry Prem (₹)']} | TSL: ₹{t['Trail SL (₹)']} | Target: ₹{t['Target Prem (₹)']} | "
                 f"Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
             )
+            
+            if "Running" in t["Status"]:
+                st.info(card_text)
+            elif "Target" in t["Status"]:
+                st.success(card_text)
+            else:
+                st.error(card_text)
 
 auto_options_scanner()
