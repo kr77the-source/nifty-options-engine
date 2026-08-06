@@ -5,20 +5,25 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Table Summary", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Tight Layout", layout="wide")
 
-# Custom CSS for compact font sizes
+# Custom CSS to reduce gaps and padding
 st.markdown("""
     <style>
-    h1 { font-size: 22px !important; }
-    h2 { font-size: 18px !important; }
-    h3 { font-size: 16px !important; }
-    p, div, span, label, th, td { font-size: 13px !important; }
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+    h1 { font-size: 20px !important; margin-bottom: 0px !important; }
+    h2 { font-size: 16px !important; margin-top: 5px !important; }
+    h3 { font-size: 14px !important; margin-top: 5px !important; }
+    p, div, span, label, th, td { font-size: 12px !important; }
+    hr { margin: 10px 0px !important; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🚀 Nifty & Bank Nifty Options Engine")
-st.markdown("Automated Options Scanner: **97%+ Accuracy + Table Summary**")
+st.markdown("Automated Options Scanner: **97%+ Accuracy + Compact View**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -80,11 +85,11 @@ def generate_strict_97_accuracy_trades():
                 final_target = 95.0
                 
                 if counter % 7 == 0:
-                    status = "🛡️ Trailed SL Hit (Profit Locked) 🔒"
+                    status = "🛡️ TSL Hit 🔒"
                     exit_prem = trailed_sl
                     pnl = abs(round((exit_prem - entry_prem) * lot_size * num_lots, 2))
                 else:
-                    status = "🎯 Trailed Target Hit (Max Gain) ✅"
+                    status = "🎯 Target Hit ✅"
                     exit_prem = final_target
                     pnl = abs(round((exit_prem - entry_prem) * lot_size * num_lots, 2))
 
@@ -113,7 +118,7 @@ generate_strict_97_accuracy_trades()
 @st.fragment(run_every=60)
 def auto_options_scanner():
     now_ist = get_ist_time()
-    st.info(f"🔄 Status: Active. Last Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
+    st.info(f"🔄 Engine Active. Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
     
     if st.session_state.master_trade_history:
         sorted_trades = sorted(
@@ -131,7 +136,6 @@ def auto_options_scanner():
         st.markdown("---")
         st.subheader("📊 Performance Summary Table")
         
-        # Creating exact requested table format using Pandas DataFrame
         summary_data = [{
             "Total Trades": total_trades_count,
             "Max Capital/Trade": f"₹{max_capital_per_trade:,.2f}",
@@ -152,12 +156,12 @@ def auto_options_scanner():
             card_text = (
                 f"🕒 `{t['Time']}` | **{t['Index']}** | Exp: `{t['Expiry']}` | "
                 f"**{t['Strategy']}** ({t['Accuracy']}) | Type: `{t['Moneyness']}` | "
-                f"**{t['Option']}** | Capital: `₹{t['Total Capital (₹)']}` | "
+                f"**{t['Option']}** | Cap: `₹{t['Total Capital (₹)']}` | "
                 f"Entry: `₹{t['Entry (₹)']}` | TSL: `₹{t['Trailed SL (₹)']}` | "
-                f"Target: `₹{t['Trailed Target (₹)']}` | **{t['Status']}** | P&L: **{pnl_color_text}**"
+                f"Tgt: `₹{t['Trailed Target (₹)']}` | **{t['Status']}** | P&L: **{pnl_color_text}**"
             )
             
-            if "Target" in t["Status"] or "Trailed SL" in t["Status"]:
+            if "Target" in t["Status"] or "TSL" in t["Status"]:
                 st.success(card_text)
             else:
                 st.error(card_text)
@@ -169,7 +173,7 @@ def auto_options_scanner():
         st.download_button(
             label="📥 Download Report (CSV)",
             data=csv_data,
-            file_name=f"Table_Report_{current_date}.csv",
+            file_name=f"Compact_Report_{current_date}.csv",
             mime="text/css",
         )
 
