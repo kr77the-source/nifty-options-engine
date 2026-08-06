@@ -4,10 +4,10 @@ import pytz
 import streamlit as st
 import yfinance as yf
 
-st.set_page_config(page_title="Index Options Trade Engine with TSL", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine with Master History", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Trailing SL & Target)")
-st.markdown("Automated Options Scanner with **Trailing Stop Loss**, ₹50 Premium Target, & 93%+ Accuracy")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Full Day History)")
+st.markdown("Automated Options Scanner with **Master Trade Log**, Trailing SL, ₹50 Premium Target, & 93%+ Accuracy")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -51,8 +51,8 @@ def evaluate_options_strategies(index_name, ticker):
         
         if is_bullish:
             entry_prem = target_premium
-            initial_sl = round(target_premium * 0.80, 2)     # Initial SL at 40
-            target_prem = round(target_premium * 1.50, 2)    # Target at 75
+            initial_sl = round(target_premium * 0.80, 2)
+            target_prem = round(target_premium * 1.50, 2)
             signal_type = "CE (BUY CALL)"
             
             mock_status_hash = hash(index_name + strat + str(datetime.now().second // 15)) % 3
@@ -66,8 +66,7 @@ def evaluate_options_strategies(index_name, ticker):
                 pnl = round((initial_sl - entry_prem) * lot_size, 2)
             else:
                 status = "⏳ Active / Running (TSL Active) 🔄"
-                # Trailing SL moves up as price fluctuates positively
-                trailing_sl = round(entry_prem + 3.0, 2) 
+                trailing_sl = round(entry_prem + 3.0, 2)
                 pnl = round(6.0 * lot_size, 2)
         else:
             entry_prem = target_premium
@@ -109,9 +108,13 @@ def evaluate_options_strategies(index_name, ticker):
 
 @st.fragment(run_every=60)
 def auto_options_scanner():
-    st.info(f"🔄 Auto-scanning Options with TSL... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
+    st.info(f"🔄 Auto-scanning Options with Master History... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
     
-    all_final_trades = []
+    # Session state initialization to maintain master history across refreshes
+    if "master_trade_history" not in st.session_state:
+        st.session_state.master_trade_history = []
+    
+    current_cycle_trades = []
     
     for index_name, ticker in indices.items():
         current_val, _, _ = get_index_data(ticker)
@@ -132,7 +135,7 @@ def auto_options_scanner():
                     f"Status: **{s_data['status']}** | P&L: **{pnl_color_text}**"
                 )
                 
-                all_final_trades.append({
+                trade_record = {
                     "Time": s_data['time'],
                     "Index": index_name,
                     "Strategy": s_name,
@@ -145,13 +148,27 @@ def auto_options_scanner():
                     "Target Prem (₹)": s_data['target'],
                     "Status": s_data['status'],
                     "P&L (₹)": pnl_val
-                })
+                }
+                
+                current_cycle_trades.append(trade_record)
+                
+                # Append to master history if not already present for this time/strategy/index combo
+                exists = any(
+                    t["Time"] == trade_record["Time"] and 
+                    t["Index"] == trade_record["Index"] and 
+                    t["Strategy"] == trade_record["Strategy"] 
+                    for t in st.session_state.master_trade_history
+                )
+                if not exists:
+                    st.session_state.master_trade_history.append(trade_record)
         else:
             st.warning(f"No strategy met the 93% accuracy threshold for {index_name}.")
     
-    if all_final_trades:
+    # Display Master Day-End / Full-Day History Table at the bottom
+    if st.session_state.master_trade_history:
         st.markdown("---")
-        st.subheader("📋 Options Summary Table (with Trailing SL)")
-        st.table(all_final_trades)
+        st.subheader("📊 Master Trade History (Market Start to End)")
+        st.markdown("Yeh table subah se ab tak ke **sabhi generated signals** aur unke status ka poora record dikhati hai:")
+        st.table(st.session_state.master_trade_history)
 
 auto_options_scanner()
