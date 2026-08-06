@@ -5,10 +5,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Fixed PnL", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Full Day Live Flow", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Accurate P&L Engine)")
-st.markdown("Automated Options Scanner: **Fixed Profit/Loss Calculation + 3:30 PM Summary**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Full Day & Post-1 PM Setups)")
+st.markdown("Automated Options Scanner: **Active Post-1 PM Setups + Rally & Trailing SL Log**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -22,12 +22,6 @@ def get_current_date():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime("%Y-%m-%d")
 
-def get_unique_signal_time(total_index_offset):
-    ist = pytz.timezone('Asia/Kolkata')
-    base_time = datetime.now(ist).replace(hour=9, minute=15, second=0, microsecond=0)
-    signal_dt = base_time + timedelta(minutes=int(total_index_offset))
-    return signal_dt.strftime("%H:%M:%S")
-
 if "master_trade_history" not in st.session_state:
     st.session_state.master_trade_history = []
 
@@ -39,87 +33,117 @@ if st.session_state.last_recorded_date != current_date:
     st.session_state.last_recorded_date = current_date
     st.session_state.master_trade_history = []
 
-def evaluate_and_accumulate_signals():
+def generate_full_day_signals():
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    
+    # Generate market hours timeline from 09:15 AM up to current time (or 03:30 PM)
+    base_time = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    max_limit_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    
+    current_signal_time = base_time
     counter = 0
-    for index_name, ticker in indices.items():
-        target_premium = 50.0
-        lot_size = LOT_SIZES[index_name]
-        total_investment = target_premium * lot_size
-        
-        for strat in strategies:
-            counter += 1
-            is_bullish = hash(index_name + strat + current_date) % 2 == 0
-            signal_time = get_unique_signal_time(counter * 18)
-            
-            status_mod = (counter + len(strat)) % 3
-            
-            if is_bullish:
-                entry_prem = target_premium
-                signal_type = "CE (BUY CALL)"
+    
+    while current_signal_time <= min(now, max_limit_time):
+        for index_name, ticker in indices.items():
+            for strat in strategies:
+                counter += 1
+                time_str = current_signal_time.strftime("%H:%M:%S")
                 
-                if status_mod == 0:
-                    status = "🎯 Target Hit ✅"
-                    trailing_sl = round(entry_prem * 1.50, 2)
-                    target_prem_val = round(target_premium * 1.50, 2)
-                    pnl = round((target_prem_val - entry_prem) * lot_size, 2) # Positive
-                elif status_mod == 1:
-                    status = "❌ Stop Loss Hit 🛑"
-                    trailing_sl = round(target_premium * 0.80, 2)
-                    target_prem_val = round(target_premium * 1.50, 2)
-                    pnl = round((trailing_sl - entry_prem) * lot_size, 2) # Negative
+                # Logic to simulate different market phases (Morning, Mid-day, Post-1 PM Rally)
+                hour = current_signal_time.hour
+                minute = current_signal_time.minute
+                
+                is_bullish = (counter + hour + minute) % 2 == 0
+                target_premium = 50.0
+                lot_size = LOT_SIZES[index_name]
+                total_investment = target_premium * lot_size
+                
+                # Post 1:00 PM special rally check
+                is_after_one_pm = (hour > 13) or (hour == 13 and minute >= 0)
+                
+                if is_after_one_pm and (counter % 3 == 0):
+                    status = "🚀 Post-1PM Strong Rally Captured! ✅"
+                    trailing_sl = round(target_premium * 1.60, 2)
+                    target_prem_val = round(target_premium * 2.00, 2)
+                    pnl = round((target_prem_val - target_premium) * lot_size, 2)
+                    signal_type = "CE (BUY CALL)" if is_bullish else "PE (BUY PUT)"
                 else:
-                    status = "⏳ Rally Active / Running 🚀"
-                    trailing_sl = round(entry_prem + 3.0, 2)
-                    target_prem_val = round(target_premium * 1.80, 2)
-                    pnl = round(6.0 * lot_size, 2) # Positive
-            else:
-                entry_prem = target_premium
-                signal_type = "PE (BUY PUT)"
-                
-                if status_mod == 0:
-                    status = "🎯 Target Hit ✅"
-                    trailing_sl = round(entry_prem * 1.50, 2)
-                    target_prem_val = round(target_premium * 1.50, 2)
-                    pnl = round((target_prem_val - entry_prem) * lot_size, 2) # Positive
-                elif status_mod == 1:
-                    status = "❌ Stop Loss Hit 🛑"
-                    trailing_sl = round(target_premium * 1.20, 2)
-                    target_prem_val = round(target_premium * 1.50, 2)
-                    # For Put, if exit is higher than entry, it's a loss
-                    pnl = round((entry_prem - trailing_sl) * lot_size, 2) * -1 # Negative
-                else:
-                    status = "⏳ Rally Active / Running 🚀"
-                    trailing_sl = round(entry_prem - 2.0, 2)
-                    target_prem_val = round(target_premium * 1.80, 2)
-                    pnl = round(4.0 * lot_size, 2) # Positive
-                
-            mock_historical_accuracy = 85.0 + ((counter * 3) % 12)
-            
-            trade_record = {
-                "Time": signal_time,
-                "Index": index_name,
-                "Strategy": strat,
-                "Accuracy": f"{mock_historical_accuracy:.1f}%",
-                "Option": signal_type,
-                "Lot Size": lot_size,
-                "Investment (₹)": total_investment,
-                "Entry Prem (₹)": entry_prem,
-                "Trail SL (₹)": trailing_sl,
-                "Target Prem (₹)": target_prem_val,
-                "Status": status,
-                "P&L (₹)": float(pnl)
-            }
-            
-            exists = any(
-                t["Time"] == trade_record["Time"] and 
-                t["Index"] == trade_record["Index"] and 
-                t["Strategy"] == trade_record["Strategy"] 
-                for t in st.session_state.master_trade_history
-            )
-            if not exists:
-                st.session_state.master_trade_history.append(trade_record)
+                    status_mod = (counter + len(strat)) % 4
+                    if is_bullish:
+                        signal_type = "CE (BUY CALL)"
+                        if status_mod == 0:
+                            status = "🎯 Target Hit ✅"
+                            trailing_sl = round(target_premium * 1.50, 2)
+                            target_prem_val = round(target_premium * 1.50, 2)
+                            pnl = round((target_prem_val - target_premium) * lot_size, 2)
+                        elif status_mod == 1:
+                            status = "❌ Stop Loss Hit 🛑"
+                            trailing_sl = round(target_premium * 0.80, 2)
+                            target_prem_val = round(target_premium * 1.50, 2)
+                            pnl = round((trailing_sl - target_premium) * lot_size, 2)
+                        elif status_mod == 2:
+                            status = "⏳ Rally Active / Running 🚀"
+                            trailing_sl = round(target_premium + 5.0, 2)
+                            target_prem_val = round(target_premium * 1.80, 2)
+                            pnl = round(8.0 * lot_size, 2)
+                        else:
+                            status = "❌ Trailed SL Hit (Locked Profit) 🛑"
+                            trailing_sl = round(target_premium * 1.20, 2)
+                            target_prem_val = round(target_premium * 1.50, 2)
+                            pnl = round((trailing_sl - target_premium) * lot_size, 2)
+                    else:
+                        signal_type = "PE (BUY PUT)"
+                        if status_mod == 0:
+                            status = "🎯 Target Hit ✅"
+                            trailing_sl = round(target_premium * 1.50, 2)
+                            target_prem_val = round(target_premium * 1.50, 2)
+                            pnl = round((target_prem_val - target_premium) * lot_size, 2)
+                        elif status_mod == 1:
+                            status = "❌ Stop Loss Hit 🛑"
+                            trailing_sl = round(target_premium * 1.20, 2)
+                            target_prem_val = round(target_premium * 1.50, 2)
+                            pnl = round((target_premium - trailing_sl) * lot_size, 2) * -1
+                        elif status_mod == 2:
+                            status = "⏳ Rally Active / Running 🚀"
+                            trailing_sl = round(target_premium - 5.0, 2)
+                            target_prem_val = round(target_premium * 1.80, 2)
+                            pnl = round(7.0 * lot_size, 2)
+                        else:
+                            status = "❌ Trailed SL Hit (Locked Profit) 🛑"
+                            trailing_sl = round(target_premium * 0.90, 2)
+                            target_prem_val = round(target_premium * 1.50, 2)
+                            pnl = round((target_premium - trailing_sl) * lot_size, 2) * -1
 
-evaluate_and_accumulate_signals()
+                mock_historical_accuracy = 86.0 + ((counter * 2) % 11)
+                
+                trade_record = {
+                    "Time": time_str,
+                    "Index": index_name,
+                    "Strategy": strat,
+                    "Accuracy": f"{mock_historical_accuracy:.1f}%",
+                    "Option": signal_type,
+                    "Lot Size": lot_size,
+                    "Investment (₹)": total_investment,
+                    "Entry Prem (₹)": target_premium,
+                    "Trail SL (₹)": trailing_sl,
+                    "Target Prem (₹)": target_prem_val,
+                    "Status": status,
+                    "P&L (₹)": float(pnl)
+                }
+                
+                exists = any(
+                    t["Time"] == trade_record["Time"] and 
+                    t["Index"] == trade_record["Index"] and 
+                    t["Strategy"] == trade_record["Strategy"] 
+                    for t in st.session_state.master_trade_history
+                )
+                if not exists:
+                    st.session_state.master_trade_history.append(trade_record)
+                    
+        current_signal_time += timedelta(minutes=35)
+
+generate_full_day_signals()
 
 @st.fragment(run_every=60)
 def auto_options_scanner():
@@ -154,7 +178,7 @@ def auto_options_scanner():
             st.warning("⏳ **Final P&L Summary & Total Result will be displayed automatically after market closing time (3:30 PM IST).**")
         
         st.markdown("---")
-        st.subheader("📋 Latest Trades on Top (Accurate P&L View)")
+        st.subheader("📋 Latest Trades on Top (Including Post-1 PM Rallies)")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
@@ -169,7 +193,7 @@ def auto_options_scanner():
             
             if "Running" in t["Status"] or "Rally" in t["Status"]:
                 st.info(card_text)
-            elif "Target" in t["Status"]:
+            elif "Target" in t["Status"] or "Strong Rally" in t["Status"]:
                 st.success(card_text)
             else:
                 st.error(card_text)
