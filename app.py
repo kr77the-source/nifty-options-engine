@@ -5,10 +5,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Capital Requirement", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Fixed KeyError", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Capital & Lot Cost Tracker)")
-st.markdown("Automated Options Scanner: **Detailed Lot Size, Per Lot Cost & Total Capital Requirement**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Live Ready)")
+st.markdown("Automated Options Scanner: **Strict 95%+ Accuracy + Capital Details + Clean View**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -51,7 +51,7 @@ def generate_strict_95_accuracy_trades():
                 option_type = "CE (BUY CALL)" if is_ce else "PE (BUY PUT)"
                 
                 entry_prem = 50.0
-                num_lots = 1  # Standard 1 Lot execution per setup, you can scale this up
+                num_lots = 1
                 total_capital_required = entry_prem * lot_size * num_lots
                 
                 if counter % 5 == 0:
@@ -83,7 +83,7 @@ generate_strict_95_accuracy_trades()
 @st.fragment(run_every=60)
 def auto_options_scanner():
     now_ist = get_ist_time()
-    st.info(f"🔄 Status: Capital & Lot Engine Active. Last Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
+    st.info(f"🔄 Status: Engine Active. Last Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
     
     if st.session_state.master_trade_history:
         sorted_trades = sorted(
@@ -96,8 +96,6 @@ def auto_options_scanner():
         total_profit_sum = sum(t["P&L (₹)"] for t in sorted_trades if t["P&L (₹)"] > 0)
         total_loss_sum = sum(t["P&L (₹)"] for t in sorted_trades if t["P&L (₹)"] < 0)
         net_result = sum(t["P&L (₹)"] for t in sorted_trades)
-        
-        # Max capital required for a single trade execution
         max_capital_per_trade = max(t["Total Capital (₹)"] for t in sorted_trades)
         
         st.markdown("---")
@@ -110,7 +108,7 @@ def auto_options_scanner():
         col4.metric("Final Net Result", f"₹{net_result:,.2f}", delta=f"{net_result:,.2f}")
         
         st.markdown("---")
-        st.subheader("📋 Executed Trades Log (With Lot & Total Capital Details)")
+        st.subheader("📋 Executed Trades Log")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
@@ -118,7 +116,7 @@ def auto_options_scanner():
             
             card_text = (
                 f"🕒 `{t['Time']}` | Index: **{t['Index']}** | Strategy: **{t['Strategy']}** ({t['Accuracy']}) | "
-                f"Option: **{t['Option']}** | **Lots:** `{t['Lots']}` (Size: {t['LotSize']}) | "
+                f"Option: **{t['Option']}** | **Lots:** `{t['Lots']}` (Size: {t['Lot Size']}) | "
                 f"**Capital Needed:** `₹{t['Total Capital (₹)']}` | Entry: ₹{t['Entry Prem (₹)']} | "
                 f"Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
             )
@@ -133,9 +131,9 @@ def auto_options_scanner():
         csv_data = df.to_csv(index=False).encode('utf-8')
         
         st.download_button(
-            label="📥 Download Capital & Trade Report (CSV)",
+            label="📥 Download Trade Report (CSV)",
             data=csv_data,
-            file_name=f"Capital_Requirement_Report_{current_date}.csv",
+            file_name=f"Trade_Report_{current_date}.csv",
             mime="text/csv",
         )
 
