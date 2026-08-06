@@ -4,10 +4,10 @@ import pytz
 import streamlit as st
 import yfinance as yf
 
-st.set_page_config(page_title="Index Options Trade Engine with Master History", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Chronological Flow", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Full Day History)")
-st.markdown("Automated Options Scanner with **Master Trade Log**, Trailing SL, ₹50 Premium Target, & 93%+ Accuracy")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Sequential Trade Flow)")
+st.markdown("Automated Options Scanner: **First Trade -> Next Trades -> Running Trade at Bottom**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -65,7 +65,7 @@ def evaluate_options_strategies(index_name, ticker):
                 trailing_sl = initial_sl
                 pnl = round((initial_sl - entry_prem) * lot_size, 2)
             else:
-                status = "⏳ Active / Running (TSL Active) 🔄"
+                status = "⏳ Active / Running 🔄"
                 trailing_sl = round(entry_prem + 3.0, 2)
                 pnl = round(6.0 * lot_size, 2)
         else:
@@ -84,7 +84,7 @@ def evaluate_options_strategies(index_name, ticker):
                 trailing_sl = initial_sl
                 pnl = round((initial_sl - entry_prem) * lot_size, 2)
             else:
-                status = "⏳ Active / Running (TSL Active) 🔄"
+                status = "⏳ Active / Running 🔄"
                 trailing_sl = round(entry_prem - 2.0, 2)
                 pnl = round(4.0 * lot_size, 2)
             
@@ -108,32 +108,18 @@ def evaluate_options_strategies(index_name, ticker):
 
 @st.fragment(run_every=60)
 def auto_options_scanner():
-    st.info(f"🔄 Auto-scanning Options with Master History... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
+    st.info(f"🔄 Auto-scanning Options... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
     
-    # Session state initialization to maintain master history across refreshes
     if "master_trade_history" not in st.session_state:
         st.session_state.master_trade_history = []
-    
-    current_cycle_trades = []
     
     for index_name, ticker in indices.items():
         current_val, _, _ = get_index_data(ticker)
         approved_signals = evaluate_options_strategies(index_name, ticker)
         
         if approved_signals:
-            st.markdown("---")
-            st.markdown(f"### 🎯 Approved 93%+ Signals for `{index_name}` (Index Value: {current_val})")
-            
             for s_name, s_data in approved_signals.items():
                 pnl_val = s_data['pnl']
-                pnl_color_text = f"🟢 +₹{pnl_val}" if pnl_val >= 0 else f"🔴 -₹{abs(pnl_val)}"
-                
-                st.success(
-                    f"🕒 `{s_data['time']}` | **{s_name}** | {s_data['accuracy']}% | **{s_data['signal']}** | "
-                    f"Lot: 1 ({s_data['lot_size']} Qty) | Inv: ₹{s_data['invested']} | "
-                    f"Entry: ₹{s_data['entry']} | **Trail SL: ₹{s_data['tsl']}** | Target: ₹{s_data['target']} | "
-                    f"Status: **{s_data['status']}** | P&L: **{pnl_color_text}**"
-                )
                 
                 trade_record = {
                     "Time": s_data['time'],
@@ -150,9 +136,6 @@ def auto_options_scanner():
                     "P&L (₹)": pnl_val
                 }
                 
-                current_cycle_trades.append(trade_record)
-                
-                # Append to master history if not already present for this time/strategy/index combo
                 exists = any(
                     t["Time"] == trade_record["Time"] and 
                     t["Index"] == trade_record["Index"] and 
@@ -164,11 +147,32 @@ def auto_options_scanner():
         else:
             st.warning(f"No strategy met the 93% accuracy threshold for {index_name}.")
     
-    # Display Master Day-End / Full-Day History Table at the bottom
     if st.session_state.master_trade_history:
+        # Sort history: First chronological by time, but push "Active / Running" to the very end
+        sorted_trades = sorted(
+            st.session_state.master_trade_history, 
+            key=lambda x: (1 if "Running" in x["Status"] else 0, x["Time"])
+        )
+        
         st.markdown("---")
-        st.subheader("📊 Master Trade History (Market Start to End)")
-        st.markdown("Yeh table subah se ab tak ke **sabhi generated signals** aur unke status ka poora record dikhati hai:")
-        st.table(st.session_state.master_trade_history)
+        st.subheader("📋 Sequential Trade Flow (First Trade ➔ Next Trades ➔ Running Trade at Last)")
+        
+        for t in sorted_trades:
+            pnl_val = t["P&L (₹)"]
+            pnl_color_text = f"🟢 +₹{pnl_val}" if pnl_val >= 0 else f"🔴 -₹{abs(pnl_val)}"
+            
+            if "Running" in t["Status"]:
+                box_color = st.info
+            elif "Target" in t["Status"]:
+                box_color = st.success
+            else:
+                box_color = st.error
+                
+            box_color(
+                f"🕒 `{t['Time']}` | Index: **{t['Index']}** | Strategy: **{t['Strategy']}** ({t['Accuracy']}) | "
+                f"Option: **{t['Option']}** | Inv: ₹{t['Investment (₹50)'] if 'Investment (₹50)' in t else t['Investment (₹)']} | "
+                f"Entry: ₹{t['Entry Prem (₹)']} | TSL: ₹{t['Trail SL (₹)']} | Target: ₹{t['Target Prem (₹)']} | "
+                f"Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
+            )
 
 auto_options_scanner()
