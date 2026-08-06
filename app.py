@@ -22,11 +22,10 @@ def get_current_date():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime("%Y-%m-%d")
 
-def get_unique_signal_time(index, strat_idx):
+def get_unique_signal_time(total_index_offset):
     ist = pytz.timezone('Asia/Kolkata')
-    # Generating staggered historical times across the trading day from 09:30 AM onwards
     base_time = datetime.now(ist).replace(hour=9, minute=30, second=0, microsecond=0)
-    signal_dt = base_time + timedelta(minutes=(index * 45) + (strat_idx * 12))
+    signal_dt = base_time + timedelta(minutes=int(total_index_offset))
     return signal_dt.strftime("%H:%M:%S")
 
 def get_index_data(ticker):
@@ -42,30 +41,30 @@ def get_index_data(ticker):
         pass
     return (24000.50, 24150.00, 23900.00) if ticker == "^NSEI" else (51000.00, 51300.00, 50800.00)
 
-# Initialize master storage outside fragment so it never wipes out on refresh
 if "master_trade_history" not in st.session_state:
     st.session_state.master_trade_history = []
 
 if "last_recorded_date" not in st.session_state:
     st.session_state.last_recorded_date = get_current_date()
 
-# Reset if date changes (new trading day)
 current_date = get_current_date()
 if st.session_state.last_recorded_date != current_date:
     st.session_state.last_recorded_date = current_date
     st.session_state.master_trade_history = []
 
 def evaluate_and_accumulate_signals():
+    counter = 0
     for index_name, ticker in indices.items():
         target_premium = 50.0
         lot_size = LOT_SIZES[index_name]
         total_investment = target_premium * lot_size
         
-        for idx, strat in enumerate(strategies):
+        for strat in strategies:
+            counter += 1
             is_bullish = hash(index_name + strat + current_date) % 2 == 0
-            signal_time = get_unique_signal_time(indices.keys().mapping.get(index_name, 0) if hasattr(indices.keys(), 'mapping') else list(indices.keys()).index(index_name), idx)
+            signal_time = get_unique_signal_time(counter * 25)
             
-            status_mod = (idx + len(strat)) % 3
+            status_mod = (counter + len(strat)) % 3
             
             if is_bullish:
                 entry_prem = target_premium
@@ -122,7 +121,6 @@ def evaluate_and_accumulate_signals():
                     "P&L (₹)": pnl
                 }
                 
-                # Check if this exact trade already exists in master history
                 exists = any(
                     t["Time"] == trade_record["Time"] and 
                     t["Index"] == trade_record["Index"] and 
@@ -132,7 +130,6 @@ def evaluate_and_accumulate_signals():
                 if not exists:
                     st.session_state.master_trade_history.append(trade_record)
 
-# Run evaluation once to populate all morning-to-now trades
 evaluate_and_accumulate_signals()
 
 @st.fragment(run_every=60)
@@ -140,7 +137,6 @@ def auto_options_scanner():
     st.info(f"🔄 Auto-scanning Options... Last Refreshed at: **{get_ist_time()} IST** (Refreshes every 60s)")
     
     if st.session_state.master_trade_history:
-        # Sort trades chronologically by time, pushing running trades to the very end
         sorted_trades = sorted(
             st.session_state.master_trade_history, 
             key=lambda x: (1 if "Running" in x["Status"] else 0, x["Time"])
@@ -167,7 +163,6 @@ def auto_options_scanner():
             else:
                 st.error(card_text)
                 
-        # One-Click Download CSV Button
         st.markdown("---")
         df = pd.DataFrame(sorted_trades)
         csv_data = df.to_csv(index=False).encode('utf-8')
