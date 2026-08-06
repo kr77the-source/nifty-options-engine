@@ -5,10 +5,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Fixed KeyError", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Entry & Exit View", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Live Ready)")
-st.markdown("Automated Options Scanner: **Strict 95%+ Accuracy + Capital Details + Clean View**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Entry & Exit Tracker)")
+st.markdown("Automated Options Scanner: **Strict 95%+ Accuracy + Entry/Exit Prices + Capital Details**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -73,6 +73,7 @@ def generate_strict_95_accuracy_trades():
                     "Lot Size": lot_size,
                     "Total Capital (₹)": float(total_capital_required),
                     "Entry Prem (₹)": entry_prem,
+                    "Exit Prem (₹)": exit_prem,
                     "Status": status,
                     "P&L (₹)": float(pnl)
                 }
@@ -108,7 +109,7 @@ def auto_options_scanner():
         col4.metric("Final Net Result", f"₹{net_result:,.2f}", delta=f"{net_result:,.2f}")
         
         st.markdown("---")
-        st.subheader("📋 Executed Trades Log")
+        st.subheader("📋 Executed Trades Log (With Entry & Exit Prices)")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
@@ -116,9 +117,9 @@ def auto_options_scanner():
             
             card_text = (
                 f"🕒 `{t['Time']}` | Index: **{t['Index']}** | Strategy: **{t['Strategy']}** ({t['Accuracy']}) | "
-                f"Option: **{t['Option']}** | **Lots:** `{t['Lots']}` (Size: {t['Lot Size']}) | "
-                f"**Capital Needed:** `₹{t['Total Capital (₹)']}` | Entry: ₹{t['Entry Prem (₹)']} | "
-                f"Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
+                f"Option: **{t['Option']}** | Lots: `{t['Lots']}` (Size: {t['Lot Size']}) | "
+                f"Capital: `₹{t['Total Capital (₹)']}` | **Entry:** `₹{t['Entry Prem (₹)']}` | "
+                f"**Exit:** `₹{t['Exit Prem (₹)']}` | Status: **{t['Status']}** | P&L: **{pnl_color_text}**"
             )
             
             if "Target" in t["Status"]:
