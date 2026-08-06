@@ -5,10 +5,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Reverse Chronological Log", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Summary Dashboard", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Latest Trade on Top)")
-st.markdown("Automated Options Scanner: **Latest-First Log + CSV Download**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (Live P&L Summary)")
+st.markdown("Automated Options Scanner: **Summary Cards + Latest Trades on Top + CSV Download**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -136,12 +136,26 @@ def auto_options_scanner():
     st.info(f"🔄 Auto-scanning Options... Last Refreshed at: **{get_ist_time()} IST** (Refreshes every 60s)")
     
     if st.session_state.master_trade_history:
-        # Sorted by Time in Reverse Order (Latest / Current time trade on top)
         sorted_trades = sorted(
             st.session_state.master_trade_history, 
             key=lambda x: x["Time"], 
             reverse=True
         )
+        
+        # Calculations for Summary Dashboard
+        total_trades_count = len(sorted_trades)
+        total_profit_sum = sum(t["P&L (₹)"] for t in sorted_trades if t["P&L (₹)"] > 0)
+        total_loss_sum = sum(t["P&L (₹)"] for t in sorted_trades if t["P&L (₹)"] < 0)
+        net_result = sum(t["P&L (₹)"] for t in sorted_trades)
+        
+        st.markdown("---")
+        st.subheader("📊 Today's Performance Summary Dashboard")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Trades", f"{total_trades_count}")
+        col2.metric("Total Profit", f"₹{total_profit_sum:,.2f}")
+        col3.metric("Total Loss", f"₹{total_loss_sum:,.2f}")
+        col4.metric("Final Net Result", f"₹{net_result:,.2f}", delta=f"{net_result:,.2f}")
         
         st.markdown("---")
         st.subheader("📋 Latest Trades on Top (Reverse Chronological Order)")
