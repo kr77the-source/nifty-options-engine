@@ -3,11 +3,12 @@ from datetime import datetime, timedelta
 import pytz
 import streamlit as st
 import yfinance as yf
+import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Morning to Evening", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - CSV Download", layout="wide")
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (Morning to End Flow)")
-st.markdown("Automated Options Scanner: **Persistent Morning History -> Chronological Sequence -> Running Trade at Bottom**")
+st.title("🚀 Nifty & Bank Nifty Options Engine (with CSV Download)")
+st.markdown("Automated Options Scanner: **Morning-to-End Sequence + One-Click Download Report**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -110,11 +111,10 @@ def evaluate_options_strategies(index_name, ticker):
 
 @st.fragment(run_every=60)
 def auto_options_scanner():
-    st.info(f"🔄 Auto-scanning Options (Morning-to-End Log)... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
+    st.info(f"🔄 Auto-scanning Options... Updated at: **{get_ist_time()} IST** (Refreshes every 60s)")
     
     current_date = get_current_date()
     
-    # Initialize session state with date check to keep records safe throughout the day
     if "last_recorded_date" not in st.session_state or st.session_state.last_recorded_date != current_date:
         st.session_state.last_recorded_date = current_date
         st.session_state.master_trade_history = []
@@ -155,14 +155,13 @@ def auto_options_scanner():
                     st.session_state.master_trade_history.append(trade_record)
     
     if st.session_state.master_trade_history:
-        # Sorting: Chronological by time from morning to end, pushing active/running to the very bottom
         sorted_trades = sorted(
             st.session_state.master_trade_history, 
             key=lambda x: (1 if "Running" in x["Status"] else 0, x["Time"])
         )
         
         st.markdown("---")
-        st.subheader("📋 Morning to End Trade Flow (Completed Trades First, Running at Bottom)")
+        st.subheader("📋 Morning to End Trade Flow")
         
         for t in sorted_trades:
             pnl_val = t["P&L (₹)"]
@@ -181,5 +180,17 @@ def auto_options_scanner():
                 st.success(card_text)
             else:
                 st.error(card_text)
+                
+        # One-Click Download CSV Button
+        st.markdown("---")
+        df = pd.DataFrame(sorted_trades)
+        csv_data = df.to_csv(index=False).encode('utf-8')
+        
+        st.download_button(
+            label="📥 Download Today's Trade Report (CSV)",
+            data=csv_data,
+            file_name=f"Trade_Report_{current_date}.csv",
+            mime="text/csv",
+        )
 
 auto_options_scanner()
