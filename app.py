@@ -5,28 +5,20 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Compact View", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Table Summary", layout="wide")
 
-# Custom CSS to reduce font sizes for mobile/compact view
+# Custom CSS for compact font sizes
 st.markdown("""
     <style>
-    h1 {
-        font-size: 22px !important;
-    }
-    h2 {
-        font-size: 18px !important;
-    }
-    h3 {
-        font-size: 16px !important;
-    }
-    p, div, span, label {
-        font-size: 13px !important;
-    }
+    h1 { font-size: 22px !important; }
+    h2 { font-size: 18px !important; }
+    h3 { font-size: 16px !important; }
+    p, div, span, label, th, td { font-size: 13px !important; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🚀 Nifty & Bank Nifty Options Engine (97%+ Accuracy + Trailing SL)")
-st.markdown("Automated Options Scanner: **Strict 97%+ Accuracy + Trailing Stop Loss & Target Protection**")
+st.title("🚀 Nifty & Bank Nifty Options Engine")
+st.markdown("Automated Options Scanner: **97%+ Accuracy + Table Summary**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -121,7 +113,7 @@ generate_strict_97_accuracy_trades()
 @st.fragment(run_every=60)
 def auto_options_scanner():
     now_ist = get_ist_time()
-    st.info(f"🔄 Status: Compact 97%+ Engine Active. Last Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
+    st.info(f"🔄 Status: Active. Last Synced: **{now_ist.strftime('%H:%M:%S')} IST**")
     
     if st.session_state.master_trade_history:
         sorted_trades = sorted(
@@ -137,13 +129,18 @@ def auto_options_scanner():
         max_capital_per_trade = max(t["Total Capital (₹)"] for t in sorted_trades)
         
         st.markdown("---")
-        st.subheader("📊 Performance Summary")
+        st.subheader("📊 Performance Summary Table")
         
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Trades", f"{total_trades_count}")
-        col2.metric("Max Capital/Trade", f"₹{max_capital_per_trade:,.2f}")
-        col3.metric("Total Profit", f"₹{total_profit_sum:,.2f}")
-        col4.metric("Net Result", f"₹{net_result:,.2f}", delta=f"{net_result:,.2f}")
+        # Creating exact requested table format using Pandas DataFrame
+        summary_data = [{
+            "Total Trades": total_trades_count,
+            "Max Capital/Trade": f"₹{max_capital_per_trade:,.2f}",
+            "Total Loss": f"₹{total_loss_sum:,.2f}",
+            "Total Profit": f"₹{total_profit_sum:,.2f}",
+            "Final P&L": f"₹{net_result:,.2f}"
+        }]
+        summary_df = pd.DataFrame(summary_data)
+        st.table(summary_df)
         
         st.markdown("---")
         st.subheader("📋 Executed Trades Log")
@@ -172,7 +169,7 @@ def auto_options_scanner():
         st.download_button(
             label="📥 Download Report (CSV)",
             data=csv_data,
-            file_name=f"Compact_Report_{current_date}.csv",
+            file_name=f"Table_Report_{current_date}.csv",
             mime="text/css",
         )
 
