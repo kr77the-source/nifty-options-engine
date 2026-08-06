@@ -7,6 +7,7 @@ import pandas as pd
 
 st.set_page_config(page_title="Index Options Trade Engine - 98% Accuracy", layout="wide")
 
+# Removed custom HTML classes from components that don't support it (st.success/error)
 st.markdown("""
     <style>
     .block-container {
@@ -16,13 +17,8 @@ st.markdown("""
     h1 { font-size: 20px !important; margin-bottom: 0px !important; }
     h2 { font-size: 16px !important; margin-top: 5px !important; }
     h3 { font-size: 14px !important; margin-top: 5px !important; }
-    p, div, span, label, th, td { font-size: 12px !important; }
+    p, div, span, label, th, td { font-size: 13px !important; }
     hr { margin: 10px 0px !important; }
-    .strat-highlight {
-        font-size: 14px !important;
-        font-weight: 800 !important;
-        color: #00FF7F !important;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -41,12 +37,19 @@ def get_current_date():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime("%Y-%m-%d")
 
-def get_current_weekly_expiry():
+# FIXED: Accurate Expiry Logic (Bank Nifty = Wednesday, Nifty = Thursday)
+def get_current_weekly_expiry(index_name):
     ist = pytz.timezone('Asia/Kolkata')
     today = datetime.now(ist)
-    days_ahead = (3 - today.weekday() + 7) % 7
-    if days_ahead == 0:
+    
+    # Wednesday = 2, Thursday = 3 in Python weekday()
+    target_day = 2 if index_name == "Bank Nifty" else 3 
+    
+    days_ahead = (target_day - today.weekday() + 7) % 7
+    # If today is expiry day but time is past 3:30 PM, move to next week
+    if days_ahead == 0 and today.hour >= 15:
         days_ahead = 7
+        
     expiry_date = today + timedelta(days=days_ahead)
     return expiry_date.strftime("%d-%b-%Y").upper()
 
@@ -65,10 +68,11 @@ def generate_strict_98_accuracy_trades():
     if len(st.session_state.master_trade_history) == 0:
         base_time = datetime.now(pytz.timezone('Asia/Kolkata')).replace(hour=9, minute=15, second=0, microsecond=0)
         counter = 0
-        expiry_str = get_current_weekly_expiry()
         moneyness_options = ["ATM", "ITM", "OTM", "FOTM"]
         
         for index_name, lot_size in LOT_SIZES.items():
+            expiry_str = get_current_weekly_expiry(index_name) # Fetching specific expiry
+            
             for strat in strategies:
                 counter += 1
                 
@@ -86,17 +90,18 @@ def generate_strict_98_accuracy_trades():
                 num_lots = 1
                 total_capital_required = entry_prem * lot_size * num_lots
                 
-                trailed_sl = 62.0
                 final_target = 95.0
                 
+                # FIXED: P&L Logic and created a real StopLoss scenario for testing
                 if counter % 7 == 0:
-                    status = "🛡️ TSL Hit 🔒"
-                    exit_prem = trailed_sl
-                    pnl = abs(round((exit_prem - entry_prem) * lot_size * num_lots, 2))
+                    status = "🛡️ SL Hit 🔒"
+                    exit_prem = 35.0  # Real Loss Scenario to test logic
+                    # Removed abs() so losses show as negative
+                    pnl = round((exit_prem - entry_prem) * lot_size * num_lots, 2)
                 else:
                     status = "🎯 Target Hit ✅"
                     exit_prem = final_target
-                    pnl = abs(round((exit_prem - entry_prem) * lot_size * num_lots, 2))
+                    pnl = round((exit_prem - entry_prem) * lot_size * num_lots, 2)
 
                 trade_record = {
                     "Time": signal_time,
@@ -110,11 +115,9 @@ def generate_strict_98_accuracy_trades():
                     "Lot Size": lot_size,
                     "Total Capital (₹)": float(total_capital_required),
                     "Entry (₹)": entry_prem,
-                    "Trailed SL (₹)": trailed_sl,
-                    "Trailed Target (₹)": final_target,
                     "Exit (₹)": exit_prem,
                     "Status": status,
-                    "P&L (₹)": float(pnl)
+                    "P&L (₹)": float(pnl) # Now supports negative values
                 }
                 st.session_state.master_trade_history.append(trade_record)
 
@@ -134,6 +137,7 @@ def auto_options_scanner():
         
         total_trades_count = len(sorted_trades)
         total_profit_sum = sum(t["P&L (₹)"] for t in sorted_trades if t["P&L (₹)"] > 0)
+        # FIXED: Negative numbers will now correctly sum up for total loss
         total_loss_sum = sum(t["P&L (₹)"] for t in sorted_trades if t["P&L (₹)"] < 0)
         net_result = sum(t["P&L (₹)"] for t in sorted_trades)
         max_capital_per_trade = max(t["Total Capital (₹)"] for t in sorted_trades)
@@ -158,12 +162,13 @@ def auto_options_scanner():
             pnl_val = t["P&L (₹)"]
             pnl_color_text = f"🟢 +₹{pnl_val}" if pnl_val >= 0 else f"🔴 -₹{abs(pnl_val)}"
             
+            # FIXED: Removed HTML span tag inside st.success/st.error to prevent raw HTML text
             card_text = (
                 f"🕒 `{t['Time']}` | **{t['Index']}** | Exp: `{t['Expiry']}` | "
-                f"<span class='strat-highlight'>{t['Strategy']} ({t['Accuracy']})</span> | Type: `{t['Moneyness']}` | "
+                f"**{t['Strategy']}** ({t['Accuracy']}) | Type: `{t['Moneyness']}` | "
                 f"**{t['Option']}** | Cap: `₹{t['Total Capital (₹)']}` | "
-                f"Entry: `₹{t['Entry (₹)']}` | TSL: `₹{t['Trailed SL (₹)']}` | "
-                f"Tgt: `₹{t['Trailed Target (₹)']}` | **{t['Status']}** | P&L: **{pnl_color_text}**"
+                f"Entry: `₹{t['Entry (₹)']}` | Exit: `₹{t['Exit (₹)']}` | "
+                f"**{t['Status']}** | P&L: **{pnl_color_text}**"
             )
             
             if "Target" in t["Status"] or "TSL" in t["Status"]:
@@ -179,7 +184,7 @@ def auto_options_scanner():
             label="📥 Download Report (CSV)",
             data=csv_data,
             file_name=f"Accuracy_98_Report_{current_date}.csv",
-            mime="text/css",
+            mime="text/csv", # FIXED: Was 'text/css' before
         )
 
 auto_options_scanner()
