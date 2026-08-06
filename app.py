@@ -5,9 +5,9 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="Index Options Trade Engine - Tight Layout", layout="wide")
+st.set_page_config(page_title="Index Options Trade Engine - Bold Strategy", layout="wide")
 
-# Custom CSS to reduce gaps and padding
+# Custom CSS for compact layout and bold strategy name highlight
 st.markdown("""
     <style>
     .block-container {
@@ -19,11 +19,16 @@ st.markdown("""
     h3 { font-size: 14px !important; margin-top: 5px !important; }
     p, div, span, label, th, td { font-size: 12px !important; }
     hr { margin: 10px 0px !important; }
+    .strat-highlight {
+        font-size: 14px !important;
+        font-weight: 800 !important;
+        color: #00FF7F !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🚀 Nifty & Bank Nifty Options Engine")
-st.markdown("Automated Options Scanner: **97%+ Accuracy + Compact View**")
+st.markdown("Automated Options Scanner: **97%+ Accuracy + Bold Strategy View**")
 
 strategies = ["CPR", "EMA", "ORB", "PDH", "VWAP", "Supertrend"]
 indices = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -155,16 +160,16 @@ def auto_options_scanner():
             
             card_text = (
                 f"🕒 `{t['Time']}` | **{t['Index']}** | Exp: `{t['Expiry']}` | "
-                f"**{t['Strategy']}** ({t['Accuracy']}) | Type: `{t['Moneyness']}` | "
+                f"<span class='strat-highlight'>{t['Strategy']} ({t['Accuracy']})</span> | Type: `{t['Moneyness']}` | "
                 f"**{t['Option']}** | Cap: `₹{t['Total Capital (₹)']}` | "
                 f"Entry: `₹{t['Entry (₹)']}` | TSL: `₹{t['Trailed SL (₹)']}` | "
                 f"Tgt: `₹{t['Trailed Target (₹)']}` | **{t['Status']}** | P&L: **{pnl_color_text}**"
             )
             
             if "Target" in t["Status"] or "TSL" in t["Status"]:
-                st.success(card_text)
+                st.success(card_text, icon=None)
             else:
-                st.error(card_text)
+                st.error(card_text, icon=None)
                 
         st.markdown("---")
         df = pd.DataFrame(sorted_trades)
@@ -173,7 +178,7 @@ def auto_options_scanner():
         st.download_button(
             label="📥 Download Report (CSV)",
             data=csv_data,
-            file_name=f"Compact_Report_{current_date}.csv",
+            file_name=f"Bold_Strategy_Report_{current_date}.csv",
             mime="text/css",
         )
 
