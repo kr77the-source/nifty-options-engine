@@ -24,7 +24,7 @@ def get_current_date():
 
 def get_unique_signal_time(total_index_offset):
     ist = pytz.timezone('Asia/Kolkata')
-    base_time = datetime.now(ist).replace(hour=9, minute=30, second=0, microsecond=0)
+    base_time = datetime.now(ist).replace(hour=9, minute=15, second=0, microsecond=0)
     signal_dt = base_time + timedelta(minutes=int(total_index_offset))
     return signal_dt.strftime("%H:%M:%S")
 
@@ -62,7 +62,7 @@ def evaluate_and_accumulate_signals():
         for strat in strategies:
             counter += 1
             is_bullish = hash(index_name + strat + current_date) % 2 == 0
-            signal_time = get_unique_signal_time(counter * 25)
+            signal_time = get_unique_signal_time(counter * 18)
             
             status_mod = (counter + len(strat)) % 3
             
@@ -103,32 +103,31 @@ def evaluate_and_accumulate_signals():
                     target_prem_val = round(target_premium * 1.50, 2)
                     pnl = round(4.0 * lot_size, 2)
                 
-            mock_historical_accuracy = 93.5 if (len(strat + index_name) % 3 == 0) else 87.0 
+            mock_historical_accuracy = 85.0 + ((counter * 3) % 12)
             
-            if mock_historical_accuracy >= 93.0:
-                trade_record = {
-                    "Time": signal_time,
-                    "Index": index_name,
-                    "Strategy": strat,
-                    "Accuracy": f"{mock_historical_accuracy}%",
-                    "Option": signal_type,
-                    "Lot Size": lot_size,
-                    "Investment (₹)": total_investment,
-                    "Entry Prem (₹)": entry_prem,
-                    "Trail SL (₹)": trailing_sl,
-                    "Target Prem (₹)": target_prem_val,
-                    "Status": status,
-                    "P&L (₹)": pnl
-                }
-                
-                exists = any(
-                    t["Time"] == trade_record["Time"] and 
-                    t["Index"] == trade_record["Index"] and 
-                    t["Strategy"] == trade_record["Strategy"] 
-                    for t in st.session_state.master_trade_history
-                )
-                if not exists:
-                    st.session_state.master_trade_history.append(trade_record)
+            trade_record = {
+                "Time": signal_time,
+                "Index": index_name,
+                "Strategy": strat,
+                "Accuracy": f"{mock_historical_accuracy:.1f}%",
+                "Option": signal_type,
+                "Lot Size": lot_size,
+                "Investment (₹)": total_investment,
+                "Entry Prem (₹)": entry_prem,
+                "Trail SL (₹)": trailing_sl,
+                "Target Prem (₹)": target_prem_val,
+                "Status": status,
+                "P&L (₹)": pnl
+            }
+            
+            exists = any(
+                t["Time"] == trade_record["Time"] and 
+                t["Index"] == trade_record["Index"] and 
+                t["Strategy"] == trade_record["Strategy"] 
+                for t in st.session_state.master_trade_history
+            )
+            if not exists:
+                st.session_state.master_trade_history.append(trade_record)
 
 evaluate_and_accumulate_signals()
 
