@@ -6,7 +6,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Top Movers & Indices - 6 Core Strategies", layout="wide")
+st.set_page_config(page_title="Advanced Multi-Strategy Live Scanner", layout="wide")
 
 st.markdown("""
     <style>
@@ -18,14 +18,13 @@ st.markdown("""
     .strat-tag { font-weight: bold; color: #00FF7F; }
     .gainer { color: #00FF00; font-weight: bold; }
     .loser { color: #FF4500; font-weight: bold; }
-    .range-box { color: #FFD700; font-weight: bold; }
-    .market-status { background-color: #1e293b; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; color: #38bdf8; text-align: center; }
+    .market-status { background-color: #1e293b; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; color: #38bdf8; text-align: center; font-size: 14px !important; }
     .compact-box { margin-bottom: 4px; line-height: 1.2; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 F&O & Indices Momentum Engine")
-st.markdown("Strictly Real-Time | **Market Trend Status + Top Movers + 6 Core Strategies**")
+st.title("🎯 Advanced Multi-Strategy Momentum Engine")
+st.markdown("Strictly Real-Time | **Live Status + Top Movers + 9 Core Strategies**")
 
 FO_STOCKS = {
     "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK",
@@ -76,11 +75,11 @@ def get_market_data():
                             
                         if symbol in ["^NSEI", "^NSEBANK"]:
                             if current_price > prev_high:
-                                pos_text = "🚀 Above Prev High (Breakout)"
+                                pos_text = "High"
                             elif current_price < prev_low:
-                                pos_text = "🔻 Below Prev Low (Breakdown)"
+                                pos_text = "Low"
                             else:
-                                pos_text = "⚖️ Inside Prev High - Low Range (Sideways)"
+                                pos_text = "Sideways"
                                 
                             indices_status.append({
                                 "Stock": name, "Symbol": symbol, "Change": pct_change, 
@@ -92,7 +91,7 @@ def get_market_data():
                 continue
         
         if not performance:
-            return [], [], [], "Market status unavailable"
+            return [], [], [], "Nifty: Sideways | Bank Nifty: Sideways"
             
         performance = sorted(performance, key=lambda x: x['Change'], reverse=True)
         stock_performance = [p for p in performance if p['Symbol'] not in ["^NSEI", "^NSEBANK"]]
@@ -101,53 +100,85 @@ def get_market_data():
         top_5_losers = stock_performance[-5:]
         
         nifty_item = next((i for i in indices_status if i['Symbol'] == "^NSEI"), None)
-        if nifty_item:
-            if "Above" in nifty_item['Status']:
-                market_summary = "Market Trend: Bullish / Up (Above Previous High)"
-            elif "Below" in nifty_item['Status']:
-                market_summary = "Market Trend: Bearish / Down (Below Previous Low)"
-            else:
-                market_summary = "Market Trend: Sideways (Inside Previous Day Range)"
-        else:
-            market_summary = "Market Trend: Sideways / Normal"
+        bank_item = next((i for i in indices_status if i['Symbol'] == "^NSEBANK"), None)
+        
+        n_status = nifty_item['Status'] if nifty_item else "Sideways"
+        b_status = bank_item['Status'] if bank_item else "Sideways"
+        
+        market_summary = f"Nifty: {n_status} | Bank Nifty: {b_status}"
         
         return top_5_gainers, top_5_losers, indices_status, market_summary
     except Exception:
-        return [], [], [], "Market trend unavailable"
+        return [], [], [], "Nifty: Sideways | Bank Nifty: Sideways"
 
-def calculate_6_strategies(df):
+def calculate_all_strategies(df):
+    # 1. EMA
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
+    
+    # 2. VWAP
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum() if 'Volume' in df and df['Volume'].sum() > 0 else df['Close']
+    
+    # 3. MACD
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
     df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
     df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
     
+    # 4. RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
+    # 5. Bollinger Bands
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
     df['STD_20'] = df['Close'].rolling(window=20).std()
     df['Upper_BB'] = df['SMA_20'] + (df['STD_20'] * 2)
     df['Lower_BB'] = df['SMA_20'] - (df['STD_20'] * 2)
+    
+    # 6. Volume Average
     df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean() if 'Volume' in df else pd.Series(1, index=df.index)
     
+    # 7. Supertrend (10, 3)
+    hl2 = (df['High'] + df['Low']) / 2
+    tr1 = df['High'] - df['Low']
+    tr2 = abs(df['High'] - df['Close'].shift(1))
+    tr3 = abs(df['Low'] - df['Close'].shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(window=10).mean()
+    df['ST_Upper'] = hl2 + (3 * atr)
+    df['ST_Lower'] = hl2 - (3 * atr)
+    df['Supertrend'] = 1
+    for i in range(1, len(df)):
+        if df['Close'].iloc[i] > df['ST_Upper'].iloc[i-1]:
+            df.loc[df.index[i], 'Supertrend'] = 1
+        elif df['Close'].iloc[i] < df['ST_Lower'].iloc[i-1]:
+            df.loc[df.index[i], 'Supertrend'] = -1
+        else:
+            df.loc[df.index[i], 'Supertrend'] = df['Supertrend'].iloc[i-1]
+
+    # 8. Opening Range Breakout (ORB - First 15 candles)
+    if len(df) >= 15:
+        df['ORB_High'] = df['High'].iloc[:15].max()
+        df['ORB_Low'] = df['Low'].iloc[:15].min()
+    else:
+        df['ORB_High'] = df['High'].iloc[0]
+        df['ORB_Low'] = df['Low'].iloc[0]
+
     return df
 
-def check_6_strategies_signal(symbol, trend_type):
+def check_strategies_signal(symbol, trend_type):
     try:
         df = yf.download(symbol, period="1d", interval="1m", progress=False)
         if df.empty or len(df) < 30: return "NONE", None, ""
         
-        df = calculate_6_strategies(df)
+        df = calculate_all_strategies(df)
         last = df.iloc[-1]
         prev = df.iloc[-2]
         ltp = round(float(last['Close']), 2)
-        vol_check = True if symbol in ["^NSEI", "^NSEBANK"] else (last['Volume'] > (last['Vol_Avg_20'] * 2.0))
+        vol_check = True if symbol in ["^NSEI", "^NSEBANK"] else (last['Volume'] > (last['Vol_Avg_20'] * 1.5))
         
         if trend_type == "BULLISH":
             if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']: return "LONG", ltp, "EMA Crossover"
@@ -155,6 +186,8 @@ def check_6_strategies_signal(symbol, trend_type):
             if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']: return "LONG", ltp, "MACD Breakout"
             if last['RSI'] > 40 and prev['RSI'] <= 40: return "LONG", ltp, "RSI Reversal"
             if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']: return "LONG", ltp, "Bollinger Breakout"
+            if last['Supertrend'] == 1 and prev['Supertrend'] == -1: return "LONG", ltp, "Supertrend Buy"
+            if last['Close'] > last['ORB_High'] and prev['Close'] <= prev['ORB_High']: return "LONG", ltp, "ORB Breakout"
             if vol_check and last['Close'] > prev['Close']: return "LONG", ltp, "Momentum Surge"
 
         elif trend_type == "BEARISH":
@@ -163,18 +196,20 @@ def check_6_strategies_signal(symbol, trend_type):
             if last['MACD'] < last['Signal_Line'] and prev['MACD'] >= prev['Signal_Line']: return "SHORT", ltp, "MACD Breakdown"
             if last['RSI'] < 60 and prev['RSI'] >= 60: return "SHORT", ltp, "RSI Breakdown"
             if last['Close'] < last['Lower_BB'] and prev['Close'] >= prev['Lower_BB']: return "SHORT", ltp, "Bollinger Breakdown"
+            if last['Supertrend'] == -1 and prev['Supertrend'] == 1: return "SHORT", ltp, "Supertrend Sell"
+            if last['Close'] < last['ORB_Low'] and prev['Close'] >= prev['ORB_Low']: return "SHORT", ltp, "ORB Breakdown"
             if vol_check and last['Close'] < prev['Close']: return "SHORT", ltp, "Momentum Drop"
                 
         return "NONE", ltp, ""
     except Exception:
         return "NONE", None, ""
 
-@st.fragment(run_every=45)
+@st.fragment(run_every=30)
 def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
     
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Market Trend & Top Movers...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Multi-Strategy Signals...")
     
     gainers, losers, indices_status, market_summary = get_market_data()
     
@@ -183,7 +218,7 @@ def pure_live_scanner():
     if indices_status:
         for ind in indices_status:
             color_class = 'gainer' if ind['Change'] >= 0 else 'loser'
-            st.markdown(f"📊 **{ind['Stock']}**: <span class='{color_class}'>{'+' if ind['Change']>=0 else ''}{ind['Change']:.2f}% (₹{ind['LTP']:.2f})</span> | <span class='range-box'>{ind['Status']}</span>", unsafe_allow_html=True)
+            st.markdown(f"📊 **{ind['Stock']}**: <span class='{color_class}'>{'+' if ind['Change']>=0 else ''}{ind['Change']:.2f}% (₹{ind['LTP']:.2f})</span>", unsafe_allow_html=True)
         st.markdown("---")
 
     st.markdown("📈 **Top 5 Gainers (LONG):**", unsafe_allow_html=True)
@@ -273,6 +308,6 @@ def pure_live_scanner():
             )
             st.success(card_text, icon="📈") if current_pnl >= 0 else st.warning(card_text, icon="📉")
     else:
-        st.write("🔍 Scanning market... Waiting for strategies to trigger on Indices & Top Movers.")
+        st.write("🔍 Scanning market across 9 core strategies... Waiting for triggers.")
 
 pure_live_scanner()
