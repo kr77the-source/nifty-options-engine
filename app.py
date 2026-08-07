@@ -6,7 +6,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Advanced Multi-Strategy Live Scanner", layout="wide")
+st.set_page_config(page_title="Advanced Multi-Strategy Live Scanner & Backtest", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,8 +23,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Advanced Multi-Strategy Momentum Engine")
-st.markdown("Strictly Real-Time | **Live Status + Top Movers + 9 Core Strategies**")
+st.title("🎯 Advanced Multi-Strategy Momentum Engine + Morning Backtest")
+st.markdown("Strictly Real-Time | **Live Status + Top Movers + Morning Replay Simulation**")
 
 FO_STOCKS = {
     "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK",
@@ -44,8 +44,6 @@ def get_ist_time():
 
 if "active_live_trades" not in st.session_state:
     st.session_state.active_live_trades = {}
-if "trade_history" not in st.session_state:
-    st.session_state.trade_history = {}
 
 def get_market_data():
     tickers = list(FO_STOCKS.values())
@@ -74,17 +72,8 @@ def get_market_data():
                             prev_high, prev_low = current_price * 1.01, current_price * 0.99
                             
                         if symbol in ["^NSEI", "^NSEBANK"]:
-                            if current_price > prev_high:
-                                pos_text = "High"
-                            elif current_price < prev_low:
-                                pos_text = "Low"
-                            else:
-                                pos_text = "Sideways"
-                                
-                            indices_status.append({
-                                "Stock": name, "Symbol": symbol, "Change": pct_change, 
-                                "LTP": current_price, "Status": pos_text
-                            })
+                            pos_text = "High" if current_price > prev_high else ("Low" if current_price < prev_low else "Sideways")
+                            indices_status.append({"Stock": name, "Symbol": symbol, "Change": pct_change, "LTP": current_price, "Status": pos_text})
                             
                         performance.append({"Stock": name, "Symbol": symbol, "Change": pct_change, "LTP": current_price})
             except Exception:
@@ -102,11 +91,7 @@ def get_market_data():
         nifty_item = next((i for i in indices_status if i['Symbol'] == "^NSEI"), None)
         bank_item = next((i for i in indices_status if i['Symbol'] == "^NSEBANK"), None)
         
-        n_status = nifty_item['Status'] if nifty_item else "Sideways"
-        b_status = bank_item['Status'] if bank_item else "Sideways"
-        
-        market_summary = f"Nifty: {n_status} | Bank Nifty: {b_status}"
-        
+        market_summary = f"Nifty: {nifty_item['Status'] if nifty_item else 'Sideways'} | Bank Nifty: {bank_item['Status'] if bank_item else 'Sideways'}"
         return top_5_gainers, top_5_losers, indices_status, market_summary
     except Exception:
         return [], [], [], "Nifty: Sideways | Bank Nifty: Sideways"
@@ -114,9 +99,7 @@ def get_market_data():
 def calculate_all_strategies(df):
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum() if 'Volume' in df and df['Volume'].sum() > 0 else df['Close']
-    
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
     df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
@@ -132,25 +115,18 @@ def calculate_all_strategies(df):
     df['STD_20'] = df['Close'].rolling(window=20).std()
     df['Upper_BB'] = df['SMA_20'] + (df['STD_20'] * 2)
     df['Lower_BB'] = df['SMA_20'] - (df['STD_20'] * 2)
-    
     df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean() if 'Volume' in df else pd.Series(1, index=df.index)
     
     hl2 = (df['High'] + df['Low']) / 2
-    tr1 = df['High'] - df['Low']
-    tr2 = abs(df['High'] - df['Close'].shift(1))
-    tr3 = abs(df['Low'] - df['Close'].shift(1))
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    tr = pd.concat([df['High'] - df['Low'], abs(df['High'] - df['Close'].shift(1)), abs(df['Low'] - df['Close'].shift(1))], axis=1).max(axis=1)
     atr = tr.rolling(window=10).mean()
     df['ST_Upper'] = hl2 + (3 * atr)
     df['ST_Lower'] = hl2 - (3 * atr)
     df['Supertrend'] = 1
     for i in range(1, len(df)):
-        if df['Close'].iloc[i] > df['ST_Upper'].iloc[i-1]:
-            df.loc[df.index[i], 'Supertrend'] = 1
-        elif df['Close'].iloc[i] < df['ST_Lower'].iloc[i-1]:
-            df.loc[df.index[i], 'Supertrend'] = -1
-        else:
-            df.loc[df.index[i], 'Supertrend'] = df['Supertrend'].iloc[i-1]
+        if df['Close'].iloc[i] > df['ST_Upper'].iloc[i-1]: df.loc[df.index[i], 'Supertrend'] = 1
+        elif df['Close'].iloc[i] < df['ST_Lower'].iloc[i-1]: df.loc[df.index[i], 'Supertrend'] = -1
+        else: df.loc[df.index[i], 'Supertrend'] = df['Supertrend'].iloc[i-1]
 
     if len(df) >= 15:
         df['ORB_High'] = df['High'].iloc[:15].max()
@@ -158,53 +134,71 @@ def calculate_all_strategies(df):
     else:
         df['ORB_High'] = df['High'].iloc[0]
         df['ORB_Low'] = df['Low'].iloc[0]
-
     return df
 
-def check_strategies_signal(symbol, trend_type):
+def run_morning_backtest_simulation(symbol, trend_type):
     try:
         df = yf.download(symbol, period="1d", interval="1m", progress=False)
-        if df.empty or len(df) < 30: return "NONE", None, ""
-        
+        if df.empty or len(df) < 35: return []
         df = calculate_all_strategies(df)
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        ltp = round(float(last['Close']), 2)
-        vol_check = True if symbol in ["^NSEI", "^NSEBANK"] else (last['Volume'] > (last['Vol_Avg_20'] * 1.5))
         
-        if trend_type == "BULLISH":
-            if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']: return "LONG", ltp, "EMA Crossover"
-            if last['Close'] > last['VWAP'] and prev['Close'] <= prev['VWAP']: return "LONG", ltp, "VWAP Bounce"
-            if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']: return "LONG", ltp, "MACD Breakout"
-            if last['RSI'] > 40 and prev['RSI'] <= 40: return "LONG", ltp, "RSI Reversal"
-            if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']: return "LONG", ltp, "Bollinger Breakout"
-            if last['Supertrend'] == 1 and prev['Supertrend'] == -1: return "LONG", ltp, "Supertrend Buy"
-            if last['Close'] > last['ORB_High'] and prev['Close'] <= prev['ORB_High']: return "LONG", ltp, "ORB Breakout"
-            if vol_check and last['Close'] > prev['Close']: return "LONG", ltp, "Momentum Surge"
-
-        elif trend_type == "BEARISH":
-            if last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']: return "SHORT", ltp, "EMA Crossover"
-            if last['Close'] < last['VWAP'] and prev['Close'] >= prev['VWAP']: return "SHORT", ltp, "VWAP Breakdown"
-            if last['MACD'] < last['Signal_Line'] and prev['MACD'] >= prev['Signal_Line']: return "SHORT", ltp, "MACD Breakdown"
-            if last['RSI'] < 60 and prev['RSI'] >= 60: return "SHORT", ltp, "RSI Breakdown"
-            if last['Close'] < last['Lower_BB'] and prev['Close'] >= prev['Lower_BB']: return "SHORT", ltp, "Bollinger Breakdown"
-            if last['Supertrend'] == -1 and prev['Supertrend'] == 1: return "SHORT", ltp, "Supertrend Sell"
-            if last['Close'] < last['ORB_Low'] and prev['Close'] >= prev['ORB_Low']: return "SHORT", ltp, "ORB Breakdown"
-            if vol_check and last['Close'] < prev['Close']: return "SHORT", ltp, "Momentum Drop"
+        simulated_trades = []
+        in_trade = False
+        trade_obj = {}
+        
+        for i in range(30, len(df)):
+            row = df.iloc[i]
+            prev = df.iloc[i-1]
+            t_time = df.index[i].strftime('%H:%M')
+            price = float(row['Close'])
+            vol_check = True if symbol in ["^NSEI", "^NSEBANK"] else (row['Volume'] > (row['Vol_Avg_20'] * 1.5))
+            
+            if not in_trade:
+                signal, strat = "NONE", ""
+                if trend_type == "BULLISH":
+                    if row['EMA_9'] > row['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']: signal, strat = "LONG", "EMA Crossover"
+                    elif row['Close'] > row['VWAP'] and prev['Close'] <= prev['VWAP']: signal, strat = "LONG", "VWAP Bounce"
+                    elif row['MACD'] > row['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']: signal, strat = "LONG", "MACD Breakout"
+                    elif row['Supertrend'] == 1 and prev['Supertrend'] == -1: signal, strat = "LONG", "Supertrend Buy"
+                    elif row['Close'] > row['ORB_High'] and prev['Close'] <= prev['ORB_High']: signal, strat = "LONG", "ORB Breakout"
+                else:
+                    if row['EMA_9'] < row['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']: signal, strat = "SHORT", "EMA Crossover"
+                    elif row['Close'] < row['VWAP'] and prev['Close'] >= prev['VWAP']: signal, strat = "SHORT", "VWAP Breakdown"
+                    elif row['MACD'] < row['Signal_Line'] and prev['MACD'] >= prev['Signal_Line']: signal, strat = "SHORT", "MACD Breakdown"
+                    elif row['Supertrend'] == -1 and prev['Supertrend'] == 1: signal, strat = "SHORT", "Supertrend Sell"
+                    elif row['Close'] < row['ORB_Low'] and prev['Close'] >= prev['ORB_Low']: signal, strat = "SHORT", "ORB Breakdown"
                 
-        return "NONE", ltp, ""
+                if signal in ["LONG", "SHORT"]:
+                    in_trade = True
+                    sl = round(price - (price * 0.003) if signal == "LONG" else price + (price * 0.003), 2)
+                    tgt = round(price + (price * 0.006) if signal == "LONG" else price - (price * 0.006), 2)
+                    trade_obj = {"Time": t_time, "Strategy": strat, "Type": signal, "Entry": price, "SL": sl, "Target": tgt}
+            else:
+                is_long = trade_obj["Type"] == "LONG"
+                hit_tgt = (is_long and price >= trade_obj["Target"]) or (not is_long and price <= trade_obj["Target"])
+                hit_sl = (is_long and price <= trade_obj["SL"]) or (not is_long and price >= trade_obj["SL"])
+                
+                if hit_tgt or hit_sl or i == len(df) - 1:
+                    exit_price = price
+                    pnl = round((exit_price - trade_obj["Entry"]) * TEST_QUANTITY * (1 if is_long else -1), 2)
+                    trade_obj["Exit_Time"] = t_time
+                    trade_obj["Exit_Price"] = exit_price
+                    trade_obj["Result"] = "Target Hit ✅" if hit_tgt else ("SL Hit ❌" if hit_sl else "Closed LTP ⏳")
+                    trade_obj["PnL"] = pnl
+                    simulated_trades.append(trade_obj)
+                    in_trade = False
+        return simulated_trades
     except Exception:
-        return "NONE", None, ""
+        return []
 
 @st.fragment(run_every=30)
 def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
     
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Multi-Strategy Signals...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Live & Morning Backtest...")
     
     gainers, losers, indices_status, market_summary = get_market_data()
-    
     st.markdown(f"<div class='market-status'>{market_summary}</div>", unsafe_allow_html=True)
     
     if indices_status:
@@ -213,93 +207,26 @@ def pure_live_scanner():
             st.markdown(f"📊 **{ind['Stock']}**: <span class='{color_class}'>{'+' if ind['Change']>=0 else ''}{ind['Change']:.2f}% (₹{ind['LTP']:.2f})</span>", unsafe_allow_html=True)
         st.markdown("---")
 
-    st.markdown("📈 **Top 5 Gainers (LONG):**", unsafe_allow_html=True)
-    if gainers:
-        gainer_str = " | ".join([f"<span class='gainer'>{g['Stock']} +{g['Change']:.2f}% (₹{g['LTP']:.2f})</span>" for g in gainers])
-        st.markdown(f"<div class='compact-box'>{gainer_str}</div>", unsafe_allow_html=True)
-    else:
-        st.write("Fetching gainers...")
-        
-    st.markdown("---")
+    st.subheader("🌅 Morning-to-Now Backtest Simulation (Histo-Replay)")
+    all_targets = [(i['Stock'], i['Symbol'], "BULLISH" if i['Change'] >= 0 else "BEARISH") for i in indices_status] + \
+                  [(g['Stock'], g['Symbol'], "BULLISH") for g in gainers] + \
+                  [(l['Stock'], l['Symbol'], "BEARISH") for l in losers]
     
-    st.markdown("📉 **Top 5 Losers (SHORT):**", unsafe_allow_html=True)
-    if losers:
-        loser_str = " | ".join([f"<span class='loser'>{l['Stock']} {l['Change']:.2f}% (₹{l['LTP']:.2f})</span>" for l in losers])
-        st.markdown(f"<div class='compact-box'>{loser_str}</div>", unsafe_allow_html=True)
-    else:
-        st.write("Fetching losers...")
-        
-    st.markdown("---")
-    st.subheader("📡 Live Signals & Active Trades (10 Shares)")
+    total_backtest_pnl = 0
+    trade_count = 0
     
-    target_targets = [(i['Stock'], i['Symbol'], "BULLISH" if i['Change'] >= 0 else "BEARISH") for i in indices_status] + \
-                     [(g['Stock'], g['Symbol'], "BULLISH") for g in gainers] + \
-                     [(l['Stock'], l['Symbol'], "BEARISH") for l in losers]
-    
-    for stock_name, symbol, trend_type in target_targets:
-        signal, live_price, strat_name = check_strategies_signal(symbol, trend_type)
-        
-        if live_price is not None and stock_name not in st.session_state.active_live_trades:
-            if signal in ["LONG", "SHORT"]:
-                entry_price = live_price
-                if signal == "LONG":
-                    sl_price = round(entry_price - (entry_price * 0.003), 2)  
-                    target_price = round(entry_price + (entry_price * 0.006), 2)
-                else: 
-                    sl_price = round(entry_price + (entry_price * 0.003), 2)  
-                    target_price = round(entry_price - (entry_price * 0.006), 2)
-                
-                st.session_state.active_live_trades[stock_name] = {
-                    "Entry_Time": current_time_str,
-                    "Stock": stock_name,
-                    "Strategy": strat_name,
-                    "Action": f"{signal} {'(BUY)' if signal=='LONG' else '(SELL)'}",
-                    "Qty": TEST_QUANTITY,
-                    "Entry": entry_price,
-                    "Current_LTP": live_price,
-                    "SL": sl_price,
-                    "Target": target_price,
-                    "Status": "Running ⏳",
-                    "Exit_Time": "--",
-                    "Type": signal
-                }
-                
-        elif stock_name in st.session_state.active_live_trades and live_price is not None:
-            trade = st.session_state.active_live_trades[stock_name]
-            trade["Current_LTP"] = live_price
+    for s_name, sym, t_type in all_targets[:8]:  # checking top items for performance speed
+        sim_trades = run_morning_backtest_simulation(sym, t_type)
+        for st_trade in sim_trades:
+            trade_count += 1
+            total_backtest_pnl += st_trade['PnL']
+            pnl_color = "gainer" if st_trade['PnL'] >= 0 else "loser"
+            st.markdown(f"• **{s_name}** | <span class='strat-tag'>{st_trade['Strategy']}</span> | {st_trade['Type']} | Entry: `₹{st_trade['Entry']}` at `{st_trade['Time']}` | Exit: `₹{st_trade['Exit_Price']}` ({st_trade['Result']}) | PnL: <span class='{pnl_color}'>₹{st_trade['PnL']}</span>", unsafe_allow_html=True)
             
-            is_long = trade["Type"] == "LONG"
-            target_hit = (is_long and live_price >= trade["Target"]) or (not is_long and live_price <= trade["Target"])
-            sl_hit = (is_long and live_price <= trade["SL"]) or (not is_long and live_price >= trade["SL"])
-            
-            if target_hit:
-                trade["Status"] = "Target Hit ✅"
-                trade["Exit_Time"] = current_time_str
-                trade["Exit_Price"] = live_price
-                st.session_state.trade_history[stock_name + current_time_str] = trade
-                del st.session_state.active_live_trades[stock_name]
-            
-            elif sl_hit:
-                trade["Status"] = "SL Hit ❌"
-                trade["Exit_Time"] = current_time_str
-                trade["Exit_Price"] = live_price
-                st.session_state.trade_history[stock_name + current_time_str] = trade
-                del st.session_state.active_live_trades[stock_name]
-
-    if st.session_state.active_live_trades:
-        for stock, t in st.session_state.active_live_trades.items():
-            multiplier = 1 if t["Type"] == "LONG" else -1
-            current_pnl = round((t["Current_LTP"] - t["Entry"]) * t["Qty"] * multiplier, 2)
-            pnl_text = f"🟢 +₹{current_pnl}" if current_pnl >= 0 else f"🔴 -₹{abs(current_pnl)}"
-            
-            card_text = (
-                f"**{t['Stock']}** | <span class='strat-tag'>{t['Strategy']}</span> | **{t['Action']}** | Qty: `{t['Qty']}`\n\n"
-                f"🕒 **Entry Time:** `{t['Entry_Time']}` | Entry Price: `₹{t['Entry']}`\n\n"
-                f"⚡ **Live LTP: `₹{t['Current_LTP']}`** | 🛑 SL: `₹{t['SL']}` | 🚀 Target: `₹{t['Target']}`\n\n"
-                f"Live P&L: **{pnl_text}**"
-            )
-            st.success(card_text, icon="📈") if current_pnl >= 0 else st.warning(card_text, icon="📉")
+    if trade_count == 0:
+        st.write("No historical morning triggers matched the precise strategy parameters today so far.")
     else:
-        st.write("🔍 Scanning market across 9 core strategies... Waiting for triggers.")
+        net_color = "gainer" if total_backtest_pnl >= 0 else "loser"
+        st.markdown(f"### Total Morning Simulation Net P&L: <span class='{net_color}'>₹{total_backtest_pnl}</span> across {trade_count} trades", unsafe_allow_html=True)
 
 pure_live_scanner()
