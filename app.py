@@ -6,7 +6,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="High-Accuracy Live Engine", layout="wide")
+st.set_page_config(page_title="Top 5 F&O Gainers/Losers Engine", layout="wide")
 
 st.markdown("""
     <style>
@@ -16,18 +16,23 @@ st.markdown("""
     p, div, span, label { font-size: 13px !important; }
     hr { margin: 10px 0px !important; }
     .strat-tag { font-weight: bold; color: #00FF7F; }
+    .gainer { color: #00FF00; font-weight: bold; }
+    .loser { color: #FF4500; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 High-Accuracy Real Intraday Engine")
-st.markdown("Strictly Real-Time | **4-Indicator Confluence (Targeting ~95% Win Rate)** | Zero Fake Data")
+st.title("🎯 F&O Momentum Engine (Top 5 Gainers & Losers)")
+st.markdown("Strictly Real-Time | **Live Stock Screener + 4-Indicator Confluence** | Qty: 10 Shares")
 
-# NSE Stocks for Intraday (10 shares low risk)
-STOCKS = {
-    "Reliance": "RELIANCE.NS",
-    "Tata Motors": "TATAMOTORS.NS",
-    "SBI": "SBIN.NS",
-    "Infosys": "INFY.NS"
+# Expanded list of highly liquid F&O Stocks for scanning
+FO_STOCKS = {
+    "Reliance": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "ICICI Bank": "ICICIBANK.NS",
+    "Infosys": "INFY.NS", "TCS": "TCS.NS", "SBI": "SBIN.NS", 
+    "Bharti Airtel": "BHARTIARTL.NS", "ITC": "ITC.NS", "L&T": "LT.NS",
+    "Tata Motors": "TATAMOTORS.NS", "Axis Bank": "AXISBANK.NS", "Maruti": "MARUTI.NS",
+    "Sun Pharma": "SUNPHARMA.NS", "Tata Steel": "TATASTEEL.NS", "M&M": "M&M.NS",
+    "HUL": "HINDUNILVR.NS", "Power Grid": "POWERGRID.NS", "NTPC": "NTPC.NS",
+    "Bajaj Finance": "BAJFINANCE.NS", "Asian Paints": "ASIANPAINT.NS"
 }
 TEST_QUANTITY = 10
 
@@ -38,154 +43,171 @@ def get_ist_time():
 # Session States
 if "active_live_trades" not in st.session_state:
     st.session_state.active_live_trades = {}
-
 if "trade_history" not in st.session_state:
-    st.session_state.trade_history = []
+    st.session_state.trade_history = {}
+
+def get_top_gainers_losers():
+    """Scans the F&O list to find Top 5 Gainers and Top 5 Losers dynamically"""
+    tickers = list(FO_STOCKS.values())
+    try:
+        # Fetching today's data to calculate % change
+        data = yf.download(tickers, period="1d", interval="1m", group_by="ticker", progress=False)
+        performance = []
+        
+        for name, symbol in FO_STOCKS.items():
+            if symbol in data and not data[symbol].empty:
+                df = data[symbol]
+                open_price = float(df['Open'].iloc[0])
+                current_price = float(df['Close'].iloc[-1])
+                pct_change = ((current_price - open_price) / open_price) * 100
+                performance.append({"Stock": name, "Symbol": symbol, "Change": pct_change, "LTP": current_price})
+        
+        # Sort by percentage change
+        performance = sorted(performance, key=lambda x: x['Change'], reverse=True)
+        
+        top_5_gainers = performance[:5]
+        top_5_losers = performance[-5:]
+        
+        return top_5_gainers, top_5_losers
+    except Exception as e:
+        return [], []
 
 def calculate_strict_technicals(df):
-    """Calculates Real Technicals for High-Probability Confluence"""
-    # 1. EMA
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    
-    # 2. VWAP
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-    
-    # 3. RSI (14)
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
-    
-    # 4. Volume Surge
     df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean()
-    
     return df
 
-def get_high_accuracy_signal(symbol):
+def get_high_accuracy_signal(symbol, trend_type):
     try:
         df = yf.download(symbol, period="1d", interval="1m", progress=False)
-        if df.empty or len(df) < 30:
-            return "NONE", None, ""
-            
-        df = calculate_strict_technicals(df)
+        if df.empty or len(df) < 30: return "NONE", None, ""
         
+        df = calculate_strict_technicals(df)
         last = df.iloc[-1]
         prev = df.iloc[-2]
         ltp = round(float(last['Close']), 2)
         
-        # STRICT 4-INDICATOR CONFLUENCE (Max Accuracy Setup)
-        # Condition 1: Trigger (EMA 9 crosses above EMA 21)
-        ema_cross = last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']
-        
-        # Condition 2: Trend Confirmation (Price is above VWAP)
-        vwap_trend = last['Close'] > last['VWAP']
-        
-        # Condition 3: Momentum (RSI is strong, above 55 but not overbought)
-        rsi_strong = 55 < last['RSI'] < 75
-        
-        # Condition 4: Institutional Volume (Current volume > 20-period average)
         high_volume = last['Volume'] > last['Vol_Avg_20']
 
-        # ONLY fire trade if ALL 4 conditions match perfectly
-        if ema_cross and vwap_trend and rsi_strong and high_volume:
-            return "LONG", ltp, "Super Confluence (EMA+VWAP+RSI+Vol)"
+        # LONG Logic (Only for Gainers)
+        if trend_type == "GAINER":
+            ema_cross = last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']
+            vwap_trend = last['Close'] > last['VWAP']
+            rsi_strong = 55 < last['RSI'] < 75
             
+            if ema_cross and vwap_trend and rsi_strong and high_volume:
+                return "LONG", ltp, "Super Confluence (Buy)"
+
+        # SHORT Logic (Only for Losers)
+        elif trend_type == "LOSER":
+            ema_cross_down = last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']
+            vwap_downtrend = last['Close'] < last['VWAP']
+            rsi_weak = 25 < last['RSI'] < 45
+            
+            if ema_cross_down and vwap_downtrend and rsi_weak and high_volume:
+                return "SHORT", ltp, "Super Confluence (Sell)"
+                
         return "NONE", ltp, ""
-            
-    except Exception as e:
+    except Exception:
         return "NONE", None, ""
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=45)
 def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Real Market for Strict High-Probability Setup...")
     
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning F&O List for Top Movers...")
+    
+    gainers, losers = get_top_gainers_losers()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("📈 **Top 5 Gainers (Scanning for LONG)**")
+        for g in gainers: st.markdown(f"<span class='gainer'>{g['Stock']}: +{g['Change']:.2f}% (₹{g['LTP']:.2f})</span>", unsafe_allow_html=True)
+    with col2:
+        st.write("📉 **Top 5 Losers (Scanning for SHORT)**")
+        for l in losers: st.markdown(f"<span class='loser'>{l['Stock']}: {l['Change']:.2f}% (₹{l['LTP']:.2f})</span>", unsafe_allow_html=True)
+        
+    st.markdown("---")
     st.subheader("📡 Live Signals & Active Trades (10 Shares)")
     
-    for stock_name, symbol in STOCKS.items():
-        signal, live_price, strat_name = get_high_accuracy_signal(symbol)
+    # Combine lists and assign trend type
+    target_stocks = [(g['Stock'], g['Symbol'], "GAINER") for g in gainers] + [(l['Stock'], l['Symbol'], "LOSER") for l in losers]
+    
+    for stock_name, symbol, trend_type in target_stocks:
+        signal, live_price, strat_name = get_high_accuracy_signal(symbol, trend_type)
         
         # ENTRY LOGIC
         if live_price is not None and stock_name not in st.session_state.active_live_trades:
-            if signal == "LONG":
+            if signal in ["LONG", "SHORT"]:
                 entry_price = live_price
-                sl_price = round(entry_price - (entry_price * 0.005), 2)  
-                target_price = round(entry_price + (entry_price * 0.01), 2) 
+                if signal == "LONG":
+                    sl_price = round(entry_price - (entry_price * 0.005), 2)  
+                    target_price = round(entry_price + (entry_price * 0.01), 2)
+                else: # SHORT
+                    sl_price = round(entry_price + (entry_price * 0.005), 2)  
+                    target_price = round(entry_price - (entry_price * 0.01), 2)
                 
                 st.session_state.active_live_trades[stock_name] = {
                     "Entry_Time": current_time_str,
                     "Stock": stock_name,
                     "Strategy": strat_name,
-                    "Action": "LONG (BUY)",
+                    "Action": f"{signal} {'(BUY)' if signal=='LONG' else '(SELL)'}",
                     "Qty": TEST_QUANTITY,
                     "Entry": entry_price,
                     "Current_LTP": live_price,
                     "SL": sl_price,
                     "Target": target_price,
                     "Status": "Running ⏳",
-                    "Exit_Time": "--"
+                    "Exit_Time": "--",
+                    "Type": signal
                 }
                 
-        # RUNNING TRADE LOGIC (SL / Target tracking)
+        # RUNNING TRADE LOGIC
         elif stock_name in st.session_state.active_live_trades and live_price is not None:
             trade = st.session_state.active_live_trades[stock_name]
             trade["Current_LTP"] = live_price
             
-            if live_price >= trade["Target"]:
+            is_long = trade["Type"] == "LONG"
+            target_hit = (is_long and live_price >= trade["Target"]) or (not is_long and live_price <= trade["Target"])
+            sl_hit = (is_long and live_price <= trade["SL"]) or (not is_long and live_price >= trade["SL"])
+            
+            if target_hit:
                 trade["Status"] = "Target Hit ✅"
                 trade["Exit_Time"] = current_time_str
                 trade["Exit_Price"] = live_price
-                st.session_state.trade_history.append(trade)
+                st.session_state.trade_history[stock_name + current_time_str] = trade
                 del st.session_state.active_live_trades[stock_name]
             
-            elif live_price <= trade["SL"]:
+            elif sl_hit:
                 trade["Status"] = "SL Hit ❌"
                 trade["Exit_Time"] = current_time_str
                 trade["Exit_Price"] = live_price
-                st.session_state.trade_history.append(trade)
+                st.session_state.trade_history[stock_name + current_time_str] = trade
                 del st.session_state.active_live_trades[stock_name]
 
     # DISPLAY ACTIVE TRADES
     if st.session_state.active_live_trades:
         for stock, t in st.session_state.active_live_trades.items():
-            current_pnl = round((t["Current_LTP"] - t["Entry"]) * t["Qty"], 2)
+            multiplier = 1 if t["Type"] == "LONG" else -1
+            current_pnl = round((t["Current_LTP"] - t["Entry"]) * t["Qty"] * multiplier, 2)
             pnl_text = f"🟢 +₹{current_pnl}" if current_pnl >= 0 else f"🔴 -₹{abs(current_pnl)}"
             
             card_text = (
-                f"**{t['Stock']}** | <span class='strat-tag'>{t['Strategy']}</span> | {t['Action']} | Qty: `{t['Qty']}`\n\n"
+                f"**{t['Stock']}** | <span class='strat-tag'>{t['Strategy']}</span> | **{t['Action']}** | Qty: `{t['Qty']}`\n\n"
                 f"🕒 **Entry Time:** `{t['Entry_Time']}` | Entry Price: `₹{t['Entry']}`\n\n"
                 f"⚡ **Live LTP: `₹{t['Current_LTP']}`** | 🛑 SL: `₹{t['SL']}` | 🚀 Target: `₹{t['Target']}`\n\n"
                 f"Live P&L: **{pnl_text}**"
             )
-            if current_pnl >= 0:
-                st.success(card_text, icon="📈")
-            else:
-                st.warning(card_text, icon="📉")
+            st.success(card_text, icon="📈") if current_pnl >= 0 else st.warning(card_text, icon="📉")
     else:
-        st.write("🔍 Scanning market... Waiting for strictly real 4-indicator setup to match.")
-
-    # DISPLAY CLOSED TRADES
-    st.markdown("---")
-    st.subheader("📋 Closed Trades (Real Timestamps)")
-    if st.session_state.trade_history:
-        for t in reversed(st.session_state.trade_history):
-            final_pnl = round((t["Exit_Price"] - t["Entry"]) * t["Qty"], 2)
-            pnl_text = f"🟢 +₹{final_pnl}" if final_pnl >= 0 else f"🔴 -₹{abs(final_pnl)}"
-            
-            hist_text = (
-                f"**{t['Stock']}** | Strategy: **{t['Strategy']}** | {t['Action']} \n\n"
-                f"🕒 **Entry:** `{t['Entry_Time']}` @ `₹{t['Entry']}` \n\n"
-                f"🕒 **Exit:** `{t['Exit_Time']}` @ `₹{t['Exit_Price']}` \n\n"
-                f"Status: **{t['Status']}** | Final P&L: **{pnl_text}**"
-            )
-            if "Target" in t["Status"]:
-                st.info(hist_text, icon="✅")
-            else:
-                st.error(hist_text, icon="❌")
-    else:
-        st.write("No trades completed yet.")
+        st.write("🔍 Scanning market... Waiting for strictly real 4-indicator setup on Top Movers.")
 
 pure_live_scanner()
