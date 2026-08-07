@@ -6,11 +6,10 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Top 5 Movers - 6 Core Strategies", layout="wide")
+st.set_page_config(page_title="Top Movers & Indices - 6 Core Strategies", layout="wide")
 
 st.markdown("""
     <style>
-    /* Upar ka space badhane ke liye padding-top increase kiya hai */
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
     h1 { font-size: 18px !important; margin-bottom: 0px !important; }
     h2 { font-size: 14px !important; margin-top: 2px !important; margin-bottom: 2px !important; }
@@ -23,10 +22,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 F&O Momentum Engine (6 Core Strategies)")
-st.markdown("Strictly Real-Time | **Top Gainers/Losers + 6 Core Strategies** | Qty: 10 Shares")
+st.title("🎯 F&O & Indices Momentum Engine")
+st.markdown("Strictly Real-Time | **Top Movers + Nifty/BankNifty + 6 Core Strategies**")
 
+# F&O Stocks + Indices added
 FO_STOCKS = {
+    "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK",
     "Reliance": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "ICICI Bank": "ICICIBANK.NS",
     "Infosys": "INFY.NS", "TCS": "TCS.NS", "SBI": "SBIN.NS", 
     "Bharti Airtel": "BHARTIARTL.NS", "ITC": "ITC.NS", "L&T": "LT.NS",
@@ -66,17 +67,26 @@ def get_top_gainers_losers():
                 continue
         
         if not performance:
-            return [], []
+            return [], [], []
             
+        # Separate Indices and Stocks if needed, or keep them together in ranking
         performance = sorted(performance, key=lambda x: x['Change'], reverse=True)
-        return performance[:5], performance[-5:]
+        
+        # Extract Nifty and Bank Nifty separately for dedicated view if present
+        indices = [p for p in performance if p['Symbol'] in ["^NSEI", "^NSEBANK"]]
+        stock_performance = [p for p in performance if p['Symbol'] not in ["^NSEI", "^NSEBANK"]]
+        
+        top_5_gainers = stock_performance[:5]
+        top_5_losers = stock_performance[-5:]
+        
+        return top_5_gainers, top_5_losers, indices
     except Exception:
-        return [], []
+        return [], [], []
 
 def calculate_6_strategies(df):
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
+    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum() if 'Volume' in df and df['Volume'].sum() > 0 else df['Close']
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
     df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
@@ -92,7 +102,7 @@ def calculate_6_strategies(df):
     df['STD_20'] = df['Close'].rolling(window=20).std()
     df['Upper_BB'] = df['SMA_20'] + (df['STD_20'] * 2)
     df['Lower_BB'] = df['SMA_20'] - (df['STD_20'] * 2)
-    df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean()
+    df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean() if 'Volume' in df else pd.Series(1, index=df.index)
     
     return df
 
@@ -106,7 +116,10 @@ def check_6_strategies_signal(symbol, trend_type):
         prev = df.iloc[-2]
         ltp = round(float(last['Close']), 2)
         
-        if trend_type == "GAINER":
+        # For indices, fallback volume check if volume is zero/nan
+        vol_check = True if symbol in ["^NSEI", "^NSEBANK"] else (last['Volume'] > (last['Vol_Avg_20'] * 2.0))
+        
+        if trend_type == "BULLISH":
             if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']:
                 return "LONG", ltp, "EMA Crossover"
             if last['Close'] > last['VWAP'] and prev['Close'] <= prev['VWAP']:
@@ -117,10 +130,10 @@ def check_6_strategies_signal(symbol, trend_type):
                 return "LONG", ltp, "RSI Reversal"
             if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']:
                 return "LONG", ltp, "Bollinger Breakout"
-            if last['Volume'] > (last['Vol_Avg_20'] * 2.0) and last['Close'] > prev['Close']:
-                return "LONG", ltp, "Volume Surge"
+            if vol_check and last['Close'] > prev['Close']:
+                return "LONG", ltp, "Momentum Surge"
 
-        elif trend_type == "LOSER":
+        elif trend_type == "BEARISH":
             if last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']:
                 return "SHORT", ltp, "EMA Crossover"
             if last['Close'] < last['VWAP'] and prev['Close'] >= prev['VWAP']:
@@ -131,8 +144,8 @@ def check_6_strategies_signal(symbol, trend_type):
                 return "SHORT", ltp, "RSI Breakdown"
             if last['Close'] < last['Lower_BB'] and prev['Close'] >= prev['Lower_BB']:
                 return "SHORT", ltp, "Bollinger Breakdown"
-            if last['Volume'] > (last['Vol_Avg_20'] * 2.0) and last['Close'] < prev['Close']:
-                return "SHORT", ltp, "Volume Surge Sell"
+            if vol_check and last['Close'] < prev['Close']:
+                return "SHORT", ltp, "Momentum Drop"
                 
         return "NONE", ltp, ""
     except Exception:
@@ -143,10 +156,16 @@ def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
     
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Top Movers across 6 Strategies...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Indices & Top Movers...")
     
-    gainers, losers = get_top_gainers_losers()
+    gainers, losers, indices = get_top_gainers_losers()
     
+    # INDICES LIVE VIEW
+    if indices:
+        ind_str = " | ".join([f"<span class='{'gainer' if i['Change'] >= 0 else 'loser'}'>{i['Stock']}: {'+' if i['Change']>=0 else ''}{i['Change']:.2f}% (₹{i['LTP']:.2f})</span>" for i in indices])
+        st.markdown(f"📊 **Indices Live:** <div class='compact-box'>{ind_str}</div>", unsafe_allow_html=True)
+        st.markdown("---")
+
     st.markdown("📈 **Top 5 Gainers (LONG):**", unsafe_allow_html=True)
     if gainers:
         gainer_str = " | ".join([f"<span class='gainer'>{g['Stock']} +{g['Change']:.2f}% (₹{g['LTP']:.2f})</span>" for g in gainers])
@@ -166,20 +185,23 @@ def pure_live_scanner():
     st.markdown("---")
     st.subheader("📡 Live Signals & Active Trades (10 Shares)")
     
-    target_stocks = [(g['Stock'], g['Symbol'], "GAINER") for g in gainers] + [(l['Stock'], l['Symbol'], "LOSER") for l in losers]
+    # Combine Indices and Top Movers for Strategy Scanning
+    target_targets = [(i['Stock'], i['Symbol'], "BULLISH" if i['Change'] >= 0 else "BEARISH") for i in indices] + \
+                     [(g['Stock'], g['Symbol'], "BULLISH") for g in gainers] + \
+                     [(l['Stock'], l['Symbol'], "BEARISH") for l in losers]
     
-    for stock_name, symbol, trend_type in target_stocks:
+    for stock_name, symbol, trend_type in target_targets:
         signal, live_price, strat_name = check_6_strategies_signal(symbol, trend_type)
         
         if live_price is not None and stock_name not in st.session_state.active_live_trades:
             if signal in ["LONG", "SHORT"]:
                 entry_price = live_price
                 if signal == "LONG":
-                    sl_price = round(entry_price - (entry_price * 0.005), 2)  
-                    target_price = round(entry_price + (entry_price * 0.01), 2)
+                    sl_price = round(entry_price - (entry_price * 0.003), 2)  
+                    target_price = round(entry_price + (entry_price * 0.006), 2)
                 else: 
-                    sl_price = round(entry_price + (entry_price * 0.005), 2)  
-                    target_price = round(entry_price - (entry_price * 0.01), 2)
+                    sl_price = round(entry_price + (entry_price * 0.003), 2)  
+                    target_price = round(entry_price - (entry_price * 0.006), 2)
                 
                 st.session_state.active_live_trades[stock_name] = {
                     "Entry_Time": current_time_str,
@@ -232,6 +254,6 @@ def pure_live_scanner():
             )
             st.success(card_text, icon="📈") if current_pnl >= 0 else st.warning(card_text, icon="📉")
     else:
-        st.write("🔍 Scanning market... Waiting for any of the 6 Strategies to trigger on Top Movers.")
+        st.write("🔍 Scanning market... Waiting for strategies to trigger on Indices & Top Movers.")
 
 pure_live_scanner()
