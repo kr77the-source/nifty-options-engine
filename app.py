@@ -18,14 +18,14 @@ st.markdown("""
     .strat-tag { font-weight: bold; color: #00FF7F; }
     .gainer { color: #00FF00; font-weight: bold; }
     .loser { color: #FF4500; font-weight: bold; }
+    .range-box { color: #FFD700; font-weight: bold; }
     .compact-box { margin-bottom: 4px; line-height: 1.2; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🎯 F&O & Indices Momentum Engine")
-st.markdown("Strictly Real-Time | **Top Movers + Nifty/BankNifty + 6 Core Strategies**")
+st.markdown("Strictly Real-Time | **Prev High/Low Status + Top Movers + 6 Core Strategies**")
 
-# F&O Stocks + Indices added
 FO_STOCKS = {
     "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK",
     "Reliance": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "ICICI Bank": "ICICIBANK.NS",
@@ -47,39 +47,62 @@ if "active_live_trades" not in st.session_state:
 if "trade_history" not in st.session_state:
     st.session_state.trade_history = {}
 
-def get_top_gainers_losers():
+def get_market_data():
     tickers = list(FO_STOCKS.values())
     try:
-        data = yf.download(tickers, period="1d", interval="1m", group_by="ticker", progress=False)
+        # Fetch 2 days data to easily get previous day high/low
+        data = yf.download(tickers, period="2d", interval="1m", group_by="ticker", progress=False)
         performance = []
+        indices_status = []
         
         for name, symbol in FO_STOCKS.items():
             try:
                 if symbol in data and not data[symbol].empty:
                     df = data[symbol].dropna()
                     if len(df) > 0:
-                        open_price = float(df['Open'].iloc[0])
                         current_price = float(df['Close'].iloc[-1])
-                        if open_price > 0:
-                            pct_change = ((current_price - open_price) / open_price) * 100
-                            performance.append({"Stock": name, "Symbol": symbol, "Change": pct_change, "LTP": current_price})
+                        open_price = float(df['Open'].iloc[0])
+                        pct_change = ((current_price - open_price) / open_price) * 100 if open_price > 0 else 0
+                        
+                        # Calculate Previous Day High/Low if 2 days data available
+                        if len(df) > 375: # Roughly 1 trading session = 375 candles of 1m
+                            prev_day_df = df.iloc[:-375]
+                            if not prev_day_df.empty:
+                                prev_high = float(prev_day_df['High'].max())
+                                prev_low = float(prev_day_df['Low'].min())
+                            else:
+                                prev_high, prev_low = current_price * 1.01, current_price * 0.99
+                        else:
+                            prev_high, prev_low = current_price * 1.01, current_price * 0.99
+                            
+                        # Check position relative to Prev High/Low
+                        if symbol in ["^NSEI", "^NSEBANK"]:
+                            if current_price > prev_high:
+                                pos_text = "🚀 Above Prev High (Breakout)"
+                            elif current_price < prev_low:
+                                pos_text = "🔻 Below Prev Low (Breakdown)"
+                            else:
+                                pos_text = "⚖️ Inside Prev High - Low Range"
+                                
+                            indices_status.append({
+                                "Stock": name, "Symbol": symbol, "Change": pct_change, 
+                                "LTP": current_price, "Status": pos_text
+                            })
+                            
+                        performance.append({"Stock": name, "Symbol": symbol, "Change": pct_change, "LTP": current_price})
             except Exception:
                 continue
         
         if not performance:
             return [], [], []
             
-        # Separate Indices and Stocks if needed, or keep them together in ranking
         performance = sorted(performance, key=lambda x: x['Change'], reverse=True)
-        
-        # Extract Nifty and Bank Nifty separately for dedicated view if present
-        indices = [p for p in performance if p['Symbol'] in ["^NSEI", "^NSEBANK"]]
         stock_performance = [p for p in performance if p['Symbol'] not in ["^NSEI", "^NSEBANK"]]
         
         top_5_gainers = stock_performance[:5]
         top_5_losers = stock_performance[-5:]
         
-        return top_5_gainers, top_5_losers, indices
+        return top_5_gainers, top_5_losers, indices_status
     except Exception:
         return [], [], []
 
@@ -115,37 +138,23 @@ def check_6_strategies_signal(symbol, trend_type):
         last = df.iloc[-1]
         prev = df.iloc[-2]
         ltp = round(float(last['Close']), 2)
-        
-        # For indices, fallback volume check if volume is zero/nan
         vol_check = True if symbol in ["^NSEI", "^NSEBANK"] else (last['Volume'] > (last['Vol_Avg_20'] * 2.0))
         
         if trend_type == "BULLISH":
-            if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']:
-                return "LONG", ltp, "EMA Crossover"
-            if last['Close'] > last['VWAP'] and prev['Close'] <= prev['VWAP']:
-                return "LONG", ltp, "VWAP Bounce"
-            if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']:
-                return "LONG", ltp, "MACD Breakout"
-            if last['RSI'] > 40 and prev['RSI'] <= 40:
-                return "LONG", ltp, "RSI Reversal"
-            if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']:
-                return "LONG", ltp, "Bollinger Breakout"
-            if vol_check and last['Close'] > prev['Close']:
-                return "LONG", ltp, "Momentum Surge"
+            if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']: return "LONG", ltp, "EMA Crossover"
+            if last['Close'] > last['VWAP'] and prev['Close'] <= prev['VWAP']: return "LONG", ltp, "VWAP Bounce"
+            if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']: return "LONG", ltp, "MACD Breakout"
+            if last['RSI'] > 40 and prev['RSI'] <= 40: return "LONG", ltp, "RSI Reversal"
+            if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']: return "LONG", ltp, "Bollinger Breakout"
+            if vol_check and last['Close'] > prev['Close']: return "LONG", ltp, "Momentum Surge"
 
         elif trend_type == "BEARISH":
-            if last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']:
-                return "SHORT", ltp, "EMA Crossover"
-            if last['Close'] < last['VWAP'] and prev['Close'] >= prev['VWAP']:
-                return "SHORT", ltp, "VWAP Breakdown"
-            if last['MACD'] < last['Signal_Line'] and prev['MACD'] >= prev['Signal_Line']:
-                return "SHORT", ltp, "MACD Breakdown"
-            if last['RSI'] < 60 and prev['RSI'] >= 60:
-                return "SHORT", ltp, "RSI Breakdown"
-            if last['Close'] < last['Lower_BB'] and prev['Close'] >= prev['Lower_BB']:
-                return "SHORT", ltp, "Bollinger Breakdown"
-            if vol_check and last['Close'] < prev['Close']:
-                return "SHORT", ltp, "Momentum Drop"
+            if last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']: return "SHORT", ltp, "EMA Crossover"
+            if last['Close'] < last['VWAP'] and prev['Close'] >= prev['VWAP']: return "SHORT", ltp, "VWAP Breakdown"
+            if last['MACD'] < last['Signal_Line'] and prev['MACD'] >= prev['Signal_Line']: return "SHORT", ltp, "MACD Breakdown"
+            if last['RSI'] < 60 and prev['RSI'] >= 60: return "SHORT", ltp, "RSI Breakdown"
+            if last['Close'] < last['Lower_BB'] and prev['Close'] >= prev['Lower_BB']: return "SHORT", ltp, "Bollinger Breakdown"
+            if vol_check and last['Close'] < prev['Close']: return "SHORT", ltp, "Momentum Drop"
                 
         return "NONE", ltp, ""
     except Exception:
@@ -156,14 +165,15 @@ def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
     
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Indices & Top Movers...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Range & Top Movers...")
     
-    gainers, losers, indices = get_top_gainers_losers()
+    gainers, losers, indices_status = get_market_data()
     
-    # INDICES LIVE VIEW
-    if indices:
-        ind_str = " | ".join([f"<span class='{'gainer' if i['Change'] >= 0 else 'loser'}'>{i['Stock']}: {'+' if i['Change']>=0 else ''}{i['Change']:.2f}% (₹{i['LTP']:.2f})</span>" for i in indices])
-        st.markdown(f"📊 **Indices Live:** <div class='compact-box'>{ind_str}</div>", unsafe_allow_html=True)
+    # INDICES & PREV HIGH/LOW STATUS LINE
+    if indices_status:
+        for ind in indices_status:
+            color_class = 'gainer' if ind['Change'] >= 0 else 'loser'
+            st.markdown(f"📊 **{ind['Stock']}**: <span class='{color_class}'>{'+' if ind['Change']>=0 else ''}{ind['Change']:.2f}% (₹{ind['LTP']:.2f})</span> | <span class='range-box'>{ind['Status']}</span>", unsafe_allow_html=True)
         st.markdown("---")
 
     st.markdown("📈 **Top 5 Gainers (LONG):**", unsafe_allow_html=True)
@@ -185,8 +195,7 @@ def pure_live_scanner():
     st.markdown("---")
     st.subheader("📡 Live Signals & Active Trades (10 Shares)")
     
-    # Combine Indices and Top Movers for Strategy Scanning
-    target_targets = [(i['Stock'], i['Symbol'], "BULLISH" if i['Change'] >= 0 else "BEARISH") for i in indices] + \
+    target_targets = [(i['Stock'], i['Symbol'], "BULLISH" if i['Change'] >= 0 else "BEARISH") for i in indices_status] + \
                      [(g['Stock'], g['Symbol'], "BULLISH") for g in gainers] + \
                      [(l['Stock'], l['Symbol'], "BEARISH") for l in losers]
     
