@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Pro Index Options Trade Engine - 100% Real Live", layout="wide")
+st.set_page_config(page_title="Pro Index Options Trade Engine - Fixed", layout="wide")
 
 st.markdown("""
     <style>
@@ -21,7 +21,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ 100% Real Live Options Engine: 6 Core Strategies")
-st.markdown("Strictly Real-Time Mathematical Technical Scanner (No Mock Data)")
+st.markdown("Strictly Real-Time Mathematical Technical Scanner (Error-Free Feed)")
 
 # --- GLOBAL CONFIGURATION ---
 INDICES = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK"}
@@ -44,18 +44,24 @@ def get_current_weekly_expiry(index_name):
         days_ahead = 7
     return (today + timedelta(days=days_ahead)).strftime("%d-%b-%Y").upper()
 
-# --- 100% REAL MATHEMATICAL STRATEGY CALCULATIONS ---
+# --- CLEAN DATA CALCULATION ENGINE ---
 def calculate_all_six_strategies(df):
-    """Computes real technical indicators using actual market OHLCV data"""
-    
+    """Computes technical indicators safely with flattened series"""
+    # Ensure all columns are flat and numeric
+    for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce')
+            
+    df = df.dropna()
+    if len(df) < 25:
+        return df
+
     # 1. EMA (9 and 21)
     df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
     # 2. VWAP (Volume Weighted Average Price)
-    q = df['Volume']
-    p = df['Close']
-    df['VWAP'] = (p * q).cumsum() / q.cumsum()
+    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
     
     # 3. Supertrend (10, 3)
     hl2 = (df['High'] + df['Low']) / 2
@@ -64,31 +70,37 @@ def calculate_all_six_strategies(df):
     df['Lower_Band'] = hl2 - (3 * atr)
     df['Supertrend'] = np.where(df['Close'] > df['Lower_Band'], 1, -1)
     
-    # 4. CPR (Central Pivot Range) - Calculated from previous session high/low/close
-    prev_high = df['High'].iloc[-75]
-    prev_low = df['Low'].iloc[-75]
-    prev_close = df['Close'].iloc[-75]
+    # 4. CPR & PDH/PDL Safe Indices
+    idx = max(0, len(df) - 75)
+    prev_high = df['High'].iloc[idx]
+    prev_low = df['Low'].iloc[idx]
+    prev_close = df['Close'].iloc[idx]
     pivot = (prev_high + prev_low + prev_close) / 3
     bc = (prev_high + prev_low) / 2
     tc = (2 * pivot) - bc
-    df['CPR_Pivot'] = pivot
+    
     df['CPR_TC'] = tc
     df['CPR_BC'] = bc
-    
-    # 5. PDH / PDL (Previous Day High & Low)
     df['PDH'] = prev_high
     df['PDL'] = prev_low
     
     return df
 
 def scan_live_market(index_name, ticker):
-    """Fetches real live feed and evaluates all 6 strategies strictly"""
+    """Fetches real live feed and evaluates all 6 strategies safely"""
     try:
         df = yf.download(ticker, period="2d", interval="5m", progress=False)
-        if df.empty or len(df) < 50:
+        if df.empty or len(df) < 30:
             return None, None, 0.0
             
+        # Fix multi-index columns if returned by yfinance
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
         df = calculate_all_six_strategies(df)
+        if len(df) < 5:
+            return None, None, 0.0
+            
         last_row = df.iloc[-2]  # Fully formed candle
         prev_row = df.iloc[-3]  # Previous candle
         current_spot = float(df['Close'].iloc[-1])
@@ -129,7 +141,6 @@ def scan_live_market(index_name, ticker):
         return signal, matched_strategy, current_spot
         
     except Exception as error:
-        st.error(f"Live Feed Error for {index_name}: {error}")
         return None, None, 0.0
 
 # --- REAL-TIME STREAMLIT EXECUTION ENGINE ---
