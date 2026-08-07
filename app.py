@@ -19,12 +19,13 @@ st.markdown("""
     .gainer { color: #00FF00; font-weight: bold; }
     .loser { color: #FF4500; font-weight: bold; }
     .range-box { color: #FFD700; font-weight: bold; }
+    .market-status { background-color: #1e293b; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; color: #38bdf8; text-align: center; }
     .compact-box { margin-bottom: 4px; line-height: 1.2; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🎯 F&O & Indices Momentum Engine")
-st.markdown("Strictly Real-Time | **Prev High/Low Status + Top Movers + 6 Core Strategies**")
+st.markdown("Strictly Real-Time | **Market Trend Status + Top Movers + 6 Core Strategies**")
 
 FO_STOCKS = {
     "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK",
@@ -50,7 +51,6 @@ if "trade_history" not in st.session_state:
 def get_market_data():
     tickers = list(FO_STOCKS.values())
     try:
-        # Fetch 2 days data to easily get previous day high/low
         data = yf.download(tickers, period="2d", interval="1m", group_by="ticker", progress=False)
         performance = []
         indices_status = []
@@ -64,8 +64,7 @@ def get_market_data():
                         open_price = float(df['Open'].iloc[0])
                         pct_change = ((current_price - open_price) / open_price) * 100 if open_price > 0 else 0
                         
-                        # Calculate Previous Day High/Low if 2 days data available
-                        if len(df) > 375: # Roughly 1 trading session = 375 candles of 1m
+                        if len(df) > 375:
                             prev_day_df = df.iloc[:-375]
                             if not prev_day_df.empty:
                                 prev_high = float(prev_day_df['High'].max())
@@ -75,14 +74,13 @@ def get_market_data():
                         else:
                             prev_high, prev_low = current_price * 1.01, current_price * 0.99
                             
-                        # Check position relative to Prev High/Low
                         if symbol in ["^NSEI", "^NSEBANK"]:
                             if current_price > prev_high:
                                 pos_text = "🚀 Above Prev High (Breakout)"
                             elif current_price < prev_low:
                                 pos_text = "🔻 Below Prev Low (Breakdown)"
                             else:
-                                pos_text = "⚖️ Inside Prev High - Low Range"
+                                pos_text = "⚖️ Inside Prev High - Low Range (Sideways)"
                                 
                             indices_status.append({
                                 "Stock": name, "Symbol": symbol, "Change": pct_change, 
@@ -94,7 +92,7 @@ def get_market_data():
                 continue
         
         if not performance:
-            return [], [], []
+            return [], [], [], "Market status unavailable"
             
         performance = sorted(performance, key=lambda x: x['Change'], reverse=True)
         stock_performance = [p for p in performance if p['Symbol'] not in ["^NSEI", "^NSEBANK"]]
@@ -102,9 +100,20 @@ def get_market_data():
         top_5_gainers = stock_performance[:5]
         top_5_losers = stock_performance[-5:]
         
-        return top_5_gainers, top_5_losers, indices_status
+        nifty_item = next((i for i in indices_status if i['Symbol'] == "^NSEI"), None)
+        if nifty_item:
+            if "Above" in nifty_item['Status']:
+                market_summary = "Market Trend: Bullish / Up (Above Previous High)"
+            elif "Below" in nifty_item['Status']:
+                market_summary = "Market Trend: Bearish / Down (Below Previous Low)"
+            else:
+                market_summary = "Market Trend: Sideways (Inside Previous Day Range)"
+        else:
+            market_summary = "Market Trend: Sideways / Normal"
+        
+        return top_5_gainers, top_5_losers, indices_status, market_summary
     except Exception:
-        return [], [], []
+        return [], [], [], "Market trend unavailable"
 
 def calculate_6_strategies(df):
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
@@ -165,11 +174,12 @@ def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
     
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Range & Top Movers...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Market Trend & Top Movers...")
     
-    gainers, losers, indices_status = get_market_data()
+    gainers, losers, indices_status, market_summary = get_market_data()
     
-    # INDICES & PREV HIGH/LOW STATUS LINE
+    st.markdown(f"<div class='market-status'>{market_summary}</div>", unsafe_allow_html=True)
+    
     if indices_status:
         for ind in indices_status:
             color_class = 'gainer' if ind['Change'] >= 0 else 'loser'
