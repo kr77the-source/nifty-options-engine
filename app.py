@@ -10,7 +10,8 @@ st.set_page_config(page_title="Top 5 Movers - 6 Core Strategies", layout="wide")
 
 st.markdown("""
     <style>
-    .block-container { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+    /* Upar ka space badhane ke liye padding-top increase kiya hai */
+    .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
     h1 { font-size: 18px !important; margin-bottom: 0px !important; }
     h2 { font-size: 14px !important; margin-top: 2px !important; margin-bottom: 2px !important; }
     p, div, span, label { font-size: 12px !important; }
@@ -73,33 +74,24 @@ def get_top_gainers_losers():
         return [], []
 
 def calculate_6_strategies(df):
-    # 1. EMA Crossover
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    
-    # 2. VWAP
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-    
-    # 3. MACD
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
     df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
     df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
     
-    # 4. RSI (14)
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # 5. Bollinger Bands (20, 2)
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
     df['STD_20'] = df['Close'].rolling(window=20).std()
     df['Upper_BB'] = df['SMA_20'] + (df['STD_20'] * 2)
     df['Lower_BB'] = df['SMA_20'] - (df['STD_20'] * 2)
-    
-    # 6. Volume Surge
     df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean()
     
     return df
@@ -115,22 +107,16 @@ def check_6_strategies_signal(symbol, trend_type):
         ltp = round(float(last['Close']), 2)
         
         if trend_type == "GAINER":
-            # Strategy 1: EMA Crossover
             if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']:
                 return "LONG", ltp, "EMA Crossover"
-            # Strategy 2: VWAP Bounce
             if last['Close'] > last['VWAP'] and prev['Close'] <= prev['VWAP']:
                 return "LONG", ltp, "VWAP Bounce"
-            # Strategy 3: MACD Breakout
             if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']:
                 return "LONG", ltp, "MACD Breakout"
-            # Strategy 4: RSI Reversal
             if last['RSI'] > 40 and prev['RSI'] <= 40:
                 return "LONG", ltp, "RSI Reversal"
-            # Strategy 5: Bollinger Breakout
             if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']:
                 return "LONG", ltp, "Bollinger Breakout"
-            # Strategy 6: Volume Surge
             if last['Volume'] > (last['Vol_Avg_20'] * 2.0) and last['Close'] > prev['Close']:
                 return "LONG", ltp, "Volume Surge"
 
