@@ -6,7 +6,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Top 5 F&O Gainers/Losers Engine", layout="wide")
+st.set_page_config(page_title="Top 5 Movers - 6 Core Strategies", layout="wide")
 
 st.markdown("""
     <style>
@@ -22,10 +22,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 F&O Momentum Engine (Top 5 Gainers & Losers)")
-st.markdown("Strictly Real-Time | **Live Stock Screener + 4-Indicator Confluence** | Qty: 10 Shares")
+st.title("🎯 F&O Momentum Engine (6 Core Strategies)")
+st.markdown("Strictly Real-Time | **Top Gainers/Losers + 6 Core Strategies** | Qty: 10 Shares")
 
-# Expanded list of highly liquid F&O Stocks for scanning
 FO_STOCKS = {
     "Reliance": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "ICICI Bank": "ICICIBANK.NS",
     "Infosys": "INFY.NS", "TCS": "TCS.NS", "SBI": "SBIN.NS", 
@@ -41,14 +40,12 @@ def get_ist_time():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist)
 
-# Session States
 if "active_live_trades" not in st.session_state:
     st.session_state.active_live_trades = {}
 if "trade_history" not in st.session_state:
     st.session_state.trade_history = {}
 
 def get_top_gainers_losers():
-    """Scans the F&O list to find Top 5 Gainers and Top 5 Losers dynamically with safety checks"""
     tickers = list(FO_STOCKS.values())
     try:
         data = yf.download(tickers, period="1d", interval="1m", group_by="ticker", progress=False)
@@ -71,52 +68,85 @@ def get_top_gainers_losers():
             return [], []
             
         performance = sorted(performance, key=lambda x: x['Change'], reverse=True)
-        top_5_gainers = performance[:5]
-        top_5_losers = performance[-5:]
-        
-        return top_5_gainers, top_5_losers
-    except Exception as e:
+        return performance[:5], performance[-5:]
+    except Exception:
         return [], []
 
-def calculate_strict_technicals(df):
+def calculate_6_strategies(df):
+    # 1. EMA Crossover
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
+    
+    # 2. VWAP
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
+    
+    # 3. MACD
+    df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
+    df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = df['EMA_12'] - df['EMA_26']
+    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    
+    # 4. RSI (14)
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # 5. Bollinger Bands (20, 2)
+    df['SMA_20'] = df['Close'].rolling(window=20).mean()
+    df['STD_20'] = df['Close'].rolling(window=20).std()
+    df['Upper_BB'] = df['SMA_20'] + (df['STD_20'] * 2)
+    df['Lower_BB'] = df['SMA_20'] - (df['STD_20'] * 2)
+    
+    # 6. Volume Surge
     df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean()
+    
     return df
 
-def get_high_accuracy_signal(symbol, trend_type):
+def check_6_strategies_signal(symbol, trend_type):
     try:
         df = yf.download(symbol, period="1d", interval="1m", progress=False)
         if df.empty or len(df) < 30: return "NONE", None, ""
         
-        df = calculate_strict_technicals(df)
+        df = calculate_6_strategies(df)
         last = df.iloc[-1]
         prev = df.iloc[-2]
         ltp = round(float(last['Close']), 2)
         
-        high_volume = last['Volume'] > last['Vol_Avg_20']
-
         if trend_type == "GAINER":
-            ema_cross = last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']
-            vwap_trend = last['Close'] > last['VWAP']
-            rsi_strong = 55 < last['RSI'] < 75
-            
-            if ema_cross and vwap_trend and rsi_strong and high_volume:
-                return "LONG", ltp, "Super Confluence (Buy)"
+            # Strategy 1: EMA Crossover
+            if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']:
+                return "LONG", ltp, "EMA Crossover"
+            # Strategy 2: VWAP Bounce
+            if last['Close'] > last['VWAP'] and prev['Close'] <= prev['VWAP']:
+                return "LONG", ltp, "VWAP Bounce"
+            # Strategy 3: MACD Breakout
+            if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']:
+                return "LONG", ltp, "MACD Breakout"
+            # Strategy 4: RSI Reversal
+            if last['RSI'] > 40 and prev['RSI'] <= 40:
+                return "LONG", ltp, "RSI Reversal"
+            # Strategy 5: Bollinger Breakout
+            if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']:
+                return "LONG", ltp, "Bollinger Breakout"
+            # Strategy 6: Volume Surge
+            if last['Volume'] > (last['Vol_Avg_20'] * 2.0) and last['Close'] > prev['Close']:
+                return "LONG", ltp, "Volume Surge"
 
         elif trend_type == "LOSER":
-            ema_cross_down = last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']
-            vwap_downtrend = last['Close'] < last['VWAP']
-            rsi_weak = 25 < last['RSI'] < 45
-            
-            if ema_cross_down and vwap_downtrend and rsi_weak and high_volume:
-                return "SHORT", ltp, "Super Confluence (Sell)"
+            if last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']:
+                return "SHORT", ltp, "EMA Crossover"
+            if last['Close'] < last['VWAP'] and prev['Close'] >= prev['VWAP']:
+                return "SHORT", ltp, "VWAP Breakdown"
+            if last['MACD'] < last['Signal_Line'] and prev['MACD'] >= prev['Signal_Line']:
+                return "SHORT", ltp, "MACD Breakdown"
+            if last['RSI'] < 60 and prev['RSI'] >= 60:
+                return "SHORT", ltp, "RSI Breakdown"
+            if last['Close'] < last['Lower_BB'] and prev['Close'] >= prev['Lower_BB']:
+                return "SHORT", ltp, "Bollinger Breakdown"
+            if last['Volume'] > (last['Vol_Avg_20'] * 2.0) and last['Close'] < prev['Close']:
+                return "SHORT", ltp, "Volume Surge Sell"
                 
         return "NONE", ltp, ""
     except Exception:
@@ -127,27 +157,25 @@ def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
     
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Top Movers...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Top Movers across 6 Strategies...")
     
     gainers, losers = get_top_gainers_losers()
     
-    # SINGLE LINE FORMAT FOR GAINERS
     st.markdown("📈 **Top 5 Gainers (LONG):**", unsafe_allow_html=True)
     if gainers:
         gainer_str = " | ".join([f"<span class='gainer'>{g['Stock']} +{g['Change']:.2f}% (₹{g['LTP']:.2f})</span>" for g in gainers])
         st.markdown(f"<div class='compact-box'>{gainer_str}</div>", unsafe_allow_html=True)
     else:
-        st.write("Fetching gainers data...")
+        st.write("Fetching gainers...")
         
     st.markdown("---")
     
-    # SINGLE LINE FORMAT FOR LOSERS
     st.markdown("📉 **Top 5 Losers (SHORT):**", unsafe_allow_html=True)
     if losers:
         loser_str = " | ".join([f"<span class='loser'>{l['Stock']} {l['Change']:.2f}% (₹{l['LTP']:.2f})</span>" for l in losers])
         st.markdown(f"<div class='compact-box'>{loser_str}</div>", unsafe_allow_html=True)
     else:
-        st.write("Fetching losers data...")
+        st.write("Fetching losers...")
         
     st.markdown("---")
     st.subheader("📡 Live Signals & Active Trades (10 Shares)")
@@ -155,7 +183,7 @@ def pure_live_scanner():
     target_stocks = [(g['Stock'], g['Symbol'], "GAINER") for g in gainers] + [(l['Stock'], l['Symbol'], "LOSER") for l in losers]
     
     for stock_name, symbol, trend_type in target_stocks:
-        signal, live_price, strat_name = get_high_accuracy_signal(symbol, trend_type)
+        signal, live_price, strat_name = check_6_strategies_signal(symbol, trend_type)
         
         if live_price is not None and stock_name not in st.session_state.active_live_trades:
             if signal in ["LONG", "SHORT"]:
@@ -218,6 +246,6 @@ def pure_live_scanner():
             )
             st.success(card_text, icon="📈") if current_pnl >= 0 else st.warning(card_text, icon="📉")
     else:
-        st.write("🔍 Scanning market... Waiting for strictly real high-accuracy setup on Top Movers.")
+        st.write("🔍 Scanning market... Waiting for any of the 6 Strategies to trigger on Top Movers.")
 
 pure_live_scanner()
