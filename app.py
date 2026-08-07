@@ -10,14 +10,15 @@ st.set_page_config(page_title="Top 5 F&O Gainers/Losers Engine", layout="wide")
 
 st.markdown("""
     <style>
-    .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
-    h1 { font-size: 20px !important; margin-bottom: 0px !important; }
-    h2 { font-size: 16px !important; margin-top: 5px !important; }
-    p, div, span, label { font-size: 13px !important; }
-    hr { margin: 10px 0px !important; }
+    .block-container { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+    h1 { font-size: 18px !important; margin-bottom: 0px !important; }
+    h2 { font-size: 14px !important; margin-top: 2px !important; margin-bottom: 2px !important; }
+    p, div, span, label { font-size: 12px !important; }
+    hr { margin: 5px 0px !important; }
     .strat-tag { font-weight: bold; color: #00FF7F; }
     .gainer { color: #00FF00; font-weight: bold; }
     .loser { color: #FF4500; font-weight: bold; }
+    .compact-box { margin-bottom: 4px; line-height: 1.2; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -47,24 +48,29 @@ if "trade_history" not in st.session_state:
     st.session_state.trade_history = {}
 
 def get_top_gainers_losers():
-    """Scans the F&O list to find Top 5 Gainers and Top 5 Losers dynamically"""
+    """Scans the F&O list to find Top 5 Gainers and Top 5 Losers dynamically with safety checks"""
     tickers = list(FO_STOCKS.values())
     try:
-        # Fetching today's data to calculate % change
         data = yf.download(tickers, period="1d", interval="1m", group_by="ticker", progress=False)
         performance = []
         
         for name, symbol in FO_STOCKS.items():
-            if symbol in data and not data[symbol].empty:
-                df = data[symbol]
-                open_price = float(df['Open'].iloc[0])
-                current_price = float(df['Close'].iloc[-1])
-                pct_change = ((current_price - open_price) / open_price) * 100
-                performance.append({"Stock": name, "Symbol": symbol, "Change": pct_change, "LTP": current_price})
+            try:
+                if symbol in data and not data[symbol].empty:
+                    df = data[symbol].dropna()
+                    if len(df) > 0:
+                        open_price = float(df['Open'].iloc[0])
+                        current_price = float(df['Close'].iloc[-1])
+                        if open_price > 0:
+                            pct_change = ((current_price - open_price) / open_price) * 100
+                            performance.append({"Stock": name, "Symbol": symbol, "Change": pct_change, "LTP": current_price})
+            except Exception:
+                continue
         
-        # Sort by percentage change
+        if not performance:
+            return [], []
+            
         performance = sorted(performance, key=lambda x: x['Change'], reverse=True)
-        
         top_5_gainers = performance[:5]
         top_5_losers = performance[-5:]
         
@@ -96,7 +102,6 @@ def get_high_accuracy_signal(symbol, trend_type):
         
         high_volume = last['Volume'] > last['Vol_Avg_20']
 
-        # LONG Logic (Only for Gainers)
         if trend_type == "GAINER":
             ema_cross = last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']
             vwap_trend = last['Close'] > last['VWAP']
@@ -105,7 +110,6 @@ def get_high_accuracy_signal(symbol, trend_type):
             if ema_cross and vwap_trend and rsi_strong and high_volume:
                 return "LONG", ltp, "Super Confluence (Buy)"
 
-        # SHORT Logic (Only for Losers)
         elif trend_type == "LOSER":
             ema_cross_down = last['EMA_9'] < last['EMA_21'] and prev['EMA_9'] >= prev['EMA_21']
             vwap_downtrend = last['Close'] < last['VWAP']
@@ -123,35 +127,43 @@ def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
     
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning F&O List for Top Movers...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Top Movers...")
     
     gainers, losers = get_top_gainers_losers()
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("📈 **Top 5 Gainers (Scanning for LONG)**")
-        for g in gainers: st.markdown(f"<span class='gainer'>{g['Stock']}: +{g['Change']:.2f}% (₹{g['LTP']:.2f})</span>", unsafe_allow_html=True)
-    with col2:
-        st.write("📉 **Top 5 Losers (Scanning for SHORT)**")
-        for l in losers: st.markdown(f"<span class='loser'>{l['Stock']}: {l['Change']:.2f}% (₹{l['LTP']:.2f})</span>", unsafe_allow_html=True)
+    # SINGLE LINE FORMAT FOR GAINERS
+    st.markdown("📈 **Top 5 Gainers (LONG):**", unsafe_allow_html=True)
+    if gainers:
+        gainer_str = " | ".join([f"<span class='gainer'>{g['Stock']} +{g['Change']:.2f}% (₹{g['LTP']:.2f})</span>" for g in gainers])
+        st.markdown(f"<div class='compact-box'>{gainer_str}</div>", unsafe_allow_html=True)
+    else:
+        st.write("Fetching gainers data...")
+        
+    st.markdown("---")
+    
+    # SINGLE LINE FORMAT FOR LOSERS
+    st.markdown("📉 **Top 5 Losers (SHORT):**", unsafe_allow_html=True)
+    if losers:
+        loser_str = " | ".join([f"<span class='loser'>{l['Stock']} {l['Change']:.2f}% (₹{l['LTP']:.2f})</span>" for l in losers])
+        st.markdown(f"<div class='compact-box'>{loser_str}</div>", unsafe_allow_html=True)
+    else:
+        st.write("Fetching losers data...")
         
     st.markdown("---")
     st.subheader("📡 Live Signals & Active Trades (10 Shares)")
     
-    # Combine lists and assign trend type
     target_stocks = [(g['Stock'], g['Symbol'], "GAINER") for g in gainers] + [(l['Stock'], l['Symbol'], "LOSER") for l in losers]
     
     for stock_name, symbol, trend_type in target_stocks:
         signal, live_price, strat_name = get_high_accuracy_signal(symbol, trend_type)
         
-        # ENTRY LOGIC
         if live_price is not None and stock_name not in st.session_state.active_live_trades:
             if signal in ["LONG", "SHORT"]:
                 entry_price = live_price
                 if signal == "LONG":
                     sl_price = round(entry_price - (entry_price * 0.005), 2)  
                     target_price = round(entry_price + (entry_price * 0.01), 2)
-                else: # SHORT
+                else: 
                     sl_price = round(entry_price + (entry_price * 0.005), 2)  
                     target_price = round(entry_price - (entry_price * 0.01), 2)
                 
@@ -170,7 +182,6 @@ def pure_live_scanner():
                     "Type": signal
                 }
                 
-        # RUNNING TRADE LOGIC
         elif stock_name in st.session_state.active_live_trades and live_price is not None:
             trade = st.session_state.active_live_trades[stock_name]
             trade["Current_LTP"] = live_price
@@ -193,7 +204,6 @@ def pure_live_scanner():
                 st.session_state.trade_history[stock_name + current_time_str] = trade
                 del st.session_state.active_live_trades[stock_name]
 
-    # DISPLAY ACTIVE TRADES
     if st.session_state.active_live_trades:
         for stock, t in st.session_state.active_live_trades.items():
             multiplier = 1 if t["Type"] == "LONG" else -1
@@ -208,6 +218,6 @@ def pure_live_scanner():
             )
             st.success(card_text, icon="📈") if current_pnl >= 0 else st.warning(card_text, icon="📉")
     else:
-        st.write("🔍 Scanning market... Waiting for strictly real 4-indicator setup on Top Movers.")
+        st.write("🔍 Scanning market... Waiting for strictly real high-accuracy setup on Top Movers.")
 
 pure_live_scanner()
