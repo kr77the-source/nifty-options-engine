@@ -112,36 +112,29 @@ def get_market_data():
         return [], [], [], "Nifty: Sideways | Bank Nifty: Sideways"
 
 def calculate_all_strategies(df):
-    # 1. EMA
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
-    # 2. VWAP
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum() if 'Volume' in df and df['Volume'].sum() > 0 else df['Close']
     
-    # 3. MACD
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
     df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
     df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
     
-    # 4. RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # 5. Bollinger Bands
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
     df['STD_20'] = df['Close'].rolling(window=20).std()
     df['Upper_BB'] = df['SMA_20'] + (df['STD_20'] * 2)
     df['Lower_BB'] = df['SMA_20'] - (df['STD_20'] * 2)
     
-    # 6. Volume Average
     df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean() if 'Volume' in df else pd.Series(1, index=df.index)
     
-    # 7. Supertrend (10, 3)
     hl2 = (df['High'] + df['Low']) / 2
     tr1 = df['High'] - df['Low']
     tr2 = abs(df['High'] - df['Close'].shift(1))
@@ -159,7 +152,6 @@ def calculate_all_strategies(df):
         else:
             df.loc[df.index[i], 'Supertrend'] = df['Supertrend'].iloc[i-1]
 
-    # 8. Opening Range Breakout (ORB - First 15 candles)
     if len(df) >= 15:
         df['ORB_High'] = df['High'].iloc[:15].max()
         df['ORB_Low'] = df['Low'].iloc[:15].min()
@@ -245,7 +237,7 @@ def pure_live_scanner():
                      [(l['Stock'], l['Symbol'], "BEARISH") for l in losers]
     
     for stock_name, symbol, trend_type in target_targets:
-        signal, live_price, strat_name = check_6_strategies_signal(symbol, trend_type)
+        signal, live_price, strat_name = check_strategies_signal(symbol, trend_type)
         
         if live_price is not None and stock_name not in st.session_state.active_live_trades:
             if signal in ["LONG", "SHORT"]:
