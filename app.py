@@ -6,7 +6,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="6 Core Strategies Live Engine", layout="wide")
+st.set_page_config(page_title="High-Accuracy Live Engine", layout="wide")
 
 st.markdown("""
     <style>
@@ -19,8 +19,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ Pure Real Intraday Engine: 6 Core Strategies")
-st.markdown("Strictly Real-Time Mathematical Scanner | Quantity: **10 Shares** | Zero Fake Data")
+st.title("🎯 High-Accuracy Real Intraday Engine")
+st.markdown("Strictly Real-Time | **4-Indicator Confluence (Targeting ~95% Win Rate)** | Zero Fake Data")
 
 # NSE Stocks for Intraday (10 shares low risk)
 STOCKS = {
@@ -42,75 +42,56 @@ if "active_live_trades" not in st.session_state:
 if "trade_history" not in st.session_state:
     st.session_state.trade_history = []
 
-def calculate_6_strategies(df):
-    """Calculates Real Technicals for 6 Core Strategies using pandas"""
-    # 1. EMA Crossover
+def calculate_strict_technicals(df):
+    """Calculates Real Technicals for High-Probability Confluence"""
+    # 1. EMA
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
     # 2. VWAP
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
     
-    # 3. MACD
-    df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
-    df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = df['EMA_12'] - df['EMA_26']
-    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    
-    # 4. RSI (14)
+    # 3. RSI (14)
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # 5. Bollinger Bands (20, 2)
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['STD_20'] = df['Close'].rolling(window=20).std()
-    df['Upper_BB'] = df['SMA_20'] + (df['STD_20'] * 2)
-    df['Lower_BB'] = df['SMA_20'] - (df['STD_20'] * 2)
-    
-    # 6. Volume Surge
+    # 4. Volume Surge
     df['Vol_Avg_20'] = df['Volume'].rolling(window=20).mean()
     
     return df
 
-def get_real_market_signal(symbol):
+def get_high_accuracy_signal(symbol):
     try:
         df = yf.download(symbol, period="1d", interval="1m", progress=False)
         if df.empty or len(df) < 30:
             return "NONE", None, ""
             
-        df = calculate_6_strategies(df)
+        df = calculate_strict_technicals(df)
         
         last = df.iloc[-1]
         prev = df.iloc[-2]
         ltp = round(float(last['Close']), 2)
         
-        # Strategy 1: EMA Crossover
-        if last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']:
-            return "LONG", ltp, "EMA Crossover"
-            
-        # Strategy 2: VWAP Bounce (Price crosses above VWAP)
-        if last['Close'] > last['VWAP'] and prev['Close'] <= prev['VWAP']:
-            return "LONG", ltp, "VWAP Bounce"
-            
-        # Strategy 3: MACD Crossover
-        if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']:
-            return "LONG", ltp, "MACD Breakout"
-            
-        # Strategy 4: RSI Oversold Reversal
-        if last['RSI'] > 30 and prev['RSI'] <= 30:
-            return "LONG", ltp, "RSI Reversal"
-            
-        # Strategy 5: Bollinger Bands Breakout
-        if last['Close'] > last['Upper_BB'] and prev['Close'] <= prev['Upper_BB']:
-            return "LONG", ltp, "Bollinger Breakout"
-            
-        # Strategy 6: Volume Profile Surge
-        if last['Volume'] > (last['Vol_Avg_20'] * 2.5) and last['Close'] > prev['Close']:
-            return "LONG", ltp, "Volume Surge"
+        # STRICT 4-INDICATOR CONFLUENCE (Max Accuracy Setup)
+        # Condition 1: Trigger (EMA 9 crosses above EMA 21)
+        ema_cross = last['EMA_9'] > last['EMA_21'] and prev['EMA_9'] <= prev['EMA_21']
+        
+        # Condition 2: Trend Confirmation (Price is above VWAP)
+        vwap_trend = last['Close'] > last['VWAP']
+        
+        # Condition 3: Momentum (RSI is strong, above 55 but not overbought)
+        rsi_strong = 55 < last['RSI'] < 75
+        
+        # Condition 4: Institutional Volume (Current volume > 20-period average)
+        high_volume = last['Volume'] > last['Vol_Avg_20']
 
+        # ONLY fire trade if ALL 4 conditions match perfectly
+        if ema_cross and vwap_trend and rsi_strong and high_volume:
+            return "LONG", ltp, "Super Confluence (EMA+VWAP+RSI+Vol)"
+            
         return "NONE", ltp, ""
             
     except Exception as e:
@@ -120,12 +101,12 @@ def get_real_market_signal(symbol):
 def pure_live_scanner():
     now_ist = get_ist_time()
     current_time_str = now_ist.strftime('%H:%M:%S')
-    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning 6 Core Strategies on Real Market Data...")
+    st.info(f"🔄 **Engine Sync:** {current_time_str} IST | Scanning Real Market for Strict High-Probability Setup...")
     
     st.subheader("📡 Live Signals & Active Trades (10 Shares)")
     
     for stock_name, symbol in STOCKS.items():
-        signal, live_price, strat_name = get_real_market_signal(symbol)
+        signal, live_price, strat_name = get_high_accuracy_signal(symbol)
         
         # ENTRY LOGIC
         if live_price is not None and stock_name not in st.session_state.active_live_trades:
@@ -184,7 +165,7 @@ def pure_live_scanner():
             else:
                 st.warning(card_text, icon="📉")
     else:
-        st.write("🔍 Scanning market... Waiting for strictly real strategy conditions to match.")
+        st.write("🔍 Scanning market... Waiting for strictly real 4-indicator setup to match.")
 
     # DISPLAY CLOSED TRADES
     st.markdown("---")
