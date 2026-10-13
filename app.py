@@ -1,17 +1,18 @@
 import datetime
+import pandas as pd
 import streamlit as st
 import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias & Cheap Options (₹2-3) System",
+    page_title="3-Case Daily Bias & Live Option Chain (₹2-3)",
     page_icon="📈",
     layout="centered",
 )
 
-st.title("📈 3-Case Daily Bias & ₹2-3 Cheap Options Setup")
+st.title("📈 3-Case Daily Bias & Live Option Chain Setup")
 st.write(
-    "Live F&O data analyze karke **₹2-3 (Deep OTM)** wale options entry ke sath dekhein."
+    "Live F&O Data aur **Real Option Chain** se ₹2-3 (Cheap OTM) options find karein."
 )
 
 # Top F&O Indices & Stocks Database
@@ -62,22 +63,28 @@ if custom_ticker.strip():
 else:
     symbol = selected_symbol
 
-# 2. Expiry Selection Dropdown
-st.markdown("---")
-expiry_type = st.selectbox(
-    "2. Option Expiry Choose Karein:",
-    options=[
-        "Current Weekly Expiry",
-        "Next Weekly Expiry",
-        "Monthly Expiry",
-    ],
-    index=0,
-)
+# Fetching available option expiry dates directly from Yahoo Finance Option Chain
+ticker = yf.Ticker(symbol)
+try:
+    available_expiries = ticker.options
+except Exception:
+    available_expiries = []
 
-if st.button("Analyze Cheap Options Setup"):
-    with st.spinner(f"Fetching live data for {symbol}..."):
+st.markdown("---")
+if available_expiries:
+    selected_expiry = st.selectbox(
+        "2. Option Chain Expiry Choose Karein (Live from NSE):",
+        options=available_expiries,
+    )
+else:
+    selected_expiry = None
+    st.warning(
+        "Is symbol ke liye live option chain expiry dates available nahi hain."
+    )
+
+if st.button("Analyze Option Chain Setup"):
+    with st.spinner(f"Fetching live spot & option chain data for {symbol}..."):
         try:
-            ticker = yf.Ticker(symbol)
             df_daily = ticker.history(period="7d", interval="1d")
 
             if len(df_daily) < 2:
@@ -127,19 +134,11 @@ if st.button("Analyze Cheap Options Setup"):
                 target_1 = 0.0
                 target_2 = 0.0
 
-                # Determine Strike Step-up based on Underlying Price
-                if current_price > 20000:
-                    strike_step = 100
-                elif current_price > 5000:
-                    strike_step = 50
-                elif current_price > 1000:
-                    strike_step = 20
-                elif current_price > 500:
-                    strike_step = 10
-                else:
-                    strike_step = 5
+                option_action = "NO TRADE"
+                suggested_option = "N/A"
+                found_option_price = 0.0
 
-                # Setup-based Strategy Calculations for ₹2-3 Cheap Options
+                # Determine Bias
                 if "BULLISH SWEEP" in case2_bias or (
                     "BULLISH" in case1_bias and current_price > pdc
                 ):
@@ -151,40 +150,47 @@ if st.button("Analyze Cheap Options Setup"):
                         max(entry_price + (daily_range * 1.2), pdh), 2
                     )
 
-                    # Far OTM Call for ₹2-3 Rate (approx 3 to 4 steps away or based on volatility)
-                    atm_strike = (
-                        round(current_price / strike_step) * strike_step
-                    )
-                    cheap_otm_call_strike = atm_strike + (strike_step * 3)
-                    option_action = f"BUY CHEAP OTM CALL (₹2-3 Target)"
-                    suggested_option = (
-                        f"{int(cheap_otm_call_strike)} CE ({expiry_type})"
-                    )
+                    # Option Chain se Calls data fetch karein aur ₹2-3 wala strike dhoondhein
+                    if selected_expiry:
+                        opt_chain = ticker.option_chain(selected_expiry)
+                        calls = opt_chain.calls
+                        # Filter OTM calls (Strike > Current Price)
+                        otm_calls = calls[calls["strike"] > current_price].copy()
+                        if not otm_calls.empty:
+                            # Find strike jiska lastPrice ya bid ₹2 se ₹3 ke sabse kareeb ho
+                            otm_calls["diff"] = abs(otm_calls["lastPrice"] - 2.5)
+                            best_row = otm_calls.loc[otm_calls["diff"].idxmin()]
+                            strike_val = int(best_row["strike"])
+                            found_option_price = best_row["lastPrice"]
+                            option_action = "BUY OTM CALL (CE)"
+                            suggested_option = (
+                                f"{strike_val} CE ({selected_expiry})"
+                            )
 
                 elif "BEARISH SWEEP" in case2_bias or (
                     "BEARISH" in case1_bias and current_price < pdc
                 ):
                     final_bias = "SELL (SHORT)"
-                    entry_price = round(current_price, 2)
-                    stop_loss = round(max(curr_high, pdh) * 1.002, 2)
-                    target_1 = round(entry_price - (daily_range * 0.60), 2)
-                    target_2 = round(
-                        min(entry_price - (daily_range * 1.2), pdl), 2
-                    )
+                    entry_price = current_price
+                    stop_loss = max(curr_high, pdh) * 1.002
+                    target_1 = entry_price - (daily_range * 0.60)
+                    target_2 = min(entry_price - (daily_range * 1.2), pdl)
 
-                    # Far OTM Put for ₹2-3 Rate
-                    atm_strike = (
-                        round(current_price / strike_step) * strike_step
-                    )
-                    cheap_otm_put_strike = atm_strike - (strike_step * 3)
-                    option_action = f"BUY CHEAP OTM PUT (₹2-3 Target)"
-                    suggested_option = (
-                        f"{int(cheap_otm_put_strike)} PE ({expiry_type})"
-                    )
-
-                else:
-                    option_action = "NO TRADE / WAIT FOR SETUP"
-                    suggested_option = "N/A"
+                    # Option Chain se Puts data fetch karein aur ₹2-3 wala strike dhoondhein
+                    if selected_expiry:
+                        opt_chain = ticker.option_chain(selected_expiry)
+                        puts = opt_chain.puts
+                        # Filter OTM puts (Strike < Current Price)
+                        otm_puts = puts[puts["strike"] < current_price].copy()
+                        if not otm_puts.empty:
+                            otm_puts["diff"] = abs(otm_puts["lastPrice"] - 2.5)
+                            best_row = otm_puts.loc[otm_puts["diff"].idxmin()]
+                            strike_val = int(best_row["strike"])
+                            found_option_price = best_row["lastPrice"]
+                            option_action = "BUY OTM PUT (PE)"
+                            suggested_option = (
+                                f"{strike_val} PE ({selected_expiry})"
+                            )
 
                 # Display Results
                 st.subheader(f"Results for: {symbol}")
@@ -195,7 +201,6 @@ if st.button("Analyze Cheap Options Setup"):
                 col3.metric("PDL (Low)", f"₹{round(pdl, 2)}")
 
                 st.markdown("---")
-                st.write(f"**Selected Expiry:** {expiry_type}")
                 st.write(f"**[Case 1] Closing Bias:** {case1_bias}")
                 st.write(f"**[Case 2] Liquidity Sweep:** {case2_bias}")
                 st.markdown("---")
@@ -207,39 +212,41 @@ if st.button("Analyze Cheap Options Setup"):
                 else:
                     st.warning(f"### UNDERLYING BIAS: {final_bias}")
 
-                # Options Trade Recommendation Box for Cheap Options
                 if final_bias in ["BUY (LONG)", "SELL (SHORT)"]:
                     st.markdown(
-                        "### 🎯 **₹2-3 CHEAP OPTIONS ENTRY (HIGH RISK / HIGH REWARD)**"
+                        "### 🎯 **OPTION CHAIN SE FETCH KIYA GAYA ₹2-3 SETUP**"
                     )
 
                     opt_col1, opt_col2 = st.columns(2)
                     opt_col1.metric("Option Action", option_action)
                     opt_col2.metric(
-                        "Suggested Cheap Strike", suggested_option
+                        "Suggested Strike (Option Chain)", suggested_option
                     )
 
                     st.markdown("---")
                     res_col1, res_col2 = st.columns(2)
-                    res_col1.metric("Spot Entry Price", f"₹{entry_price}")
-                    res_col2.metric("Spot Stop Loss", f"₹{stop_loss}")
+                    res_col1.metric(
+                        "Option Last Traded Price (LTP)",
+                        f"₹{round(found_option_price, 2)}",
+                    )
+                    res_col2.metric("Spot Stop Loss", f"₹{round(stop_loss, 2)}")
 
                     st.markdown("#### 🎯 Spot Target Levels")
                     t_col1, t_col2 = st.columns(2)
                     t_col1.metric(
                         "Target 1 (Spot)",
-                        f"₹{target_1}",
+                        f"₹{round(target_1, 2)}",
                         delta="60% Day Range",
                     )
                     t_col2.metric(
                         "Target 2 (Spot)",
-                        f"₹{target_2}",
+                        f"₹{round(target_2, 2)}",
                         delta="Full Range Sweep",
                     )
 
-                    st.warning(
-                        f"⚠️ **Cheap Options Note:** Yeh **{suggested_option}** ek Far OTM contract hai jiska premium ₹2-3 ke aas-pass mil sakta hai (khaas kar expiry ke din). Isme risk high hota hai kyunki agar market momentum nahi aaya toh premium zero ho sakta hai. Chhote amount ke sath hi trade karein!"
+                    st.info(
+                        f"💡 **Option Chain Note:** Yeh strike direct live option chain se uthai gayi hai jiska current market price ₹2-3 ke sabse kareeb hai. Expiry ke din aise contracts tezi se move karte hain, par risk bhi high hota hai isliye strict discipline rakhein."
                     )
 
         except Exception as e:
-            st.error(f"Error processing data: {e}")
+            st.error(f"Error processing option chain data: {e}")
