@@ -11,9 +11,7 @@ st.set_page_config(
 )
 
 st.title("📈 3-Case Daily Bias & Option Setup")
-st.write(
-    "Live Data, Support/Resistance (S1-S3, R1-R3) aur ₹2-3 Option Chain ek sath upar."
-)
+st.write("Live Data, Support & Resistance Levels aur ₹2-3 Option Chain.")
 
 # Top F&O Indices & Stocks Database
 STOCK_DATABASE = [
@@ -201,13 +199,13 @@ if st.button("Analyze Now", type="primary"):
                 m2.metric("PDH", f"₹{round(pdh, 2)}")
                 m3.metric("PDL", f"₹{round(pdl, 2)}")
 
-                # S&R Table (S1-S3 & R1-R3 Side-by-Side Compact Layout)
+                # Custom Clean Table without index numbers, matching your sketch layout
                 sr_data = {
-                    "Level": ["Level 1", "Level 2", "Level 3"],
-                    "Support": [f"₹{s1}", f"₹{s2}", f"₹{s3}"],
-                    "Resistance": [f"₹{r1}", f"₹{r2}", f"₹{r3}"],
+                    "Supports (S)": [f"S1: ₹{s1}", f"S2: ₹{s2}", f"S3: ₹{s3}"],
+                    "Resistances (R)": [f"R1: ₹{r1}", f"R2: ₹{r2}", f"R3: ₹{r3}"],
                 }
-                st.dataframe(pd.DataFrame(sr_data), use_container_width=True)
+                df_sr = pd.DataFrame(sr_data)
+                st.table(df_sr)
 
                 # Final Bias & Option Setup Box
                 if final_bias == "BUY (LONG)":
