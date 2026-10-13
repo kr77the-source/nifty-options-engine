@@ -5,14 +5,14 @@ import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias & Live Option Chain (₹2-3)",
+    page_title="3-Case Daily Bias & Option Chain (₹2-3)",
     page_icon="📈",
     layout="centered",
 )
 
 st.title("📈 3-Case Daily Bias & Live Option Chain Setup")
 st.write(
-    "Live F&O Data aur **Real Option Chain** se ₹2-3 (Cheap OTM) options find karein."
+    "Live F&O Data, **Support/Resistance Table**, aur ₹2-3 (Cheap OTM) options find karein."
 )
 
 # Top F&O Indices & Stocks Database
@@ -63,7 +63,7 @@ if custom_ticker.strip():
 else:
     symbol = selected_symbol
 
-# Fetching available option expiry dates directly from Yahoo Finance Option Chain
+# Fetching available option expiry dates safely
 ticker = yf.Ticker(symbol)
 try:
     available_expiries = ticker.options
@@ -78,12 +78,12 @@ if available_expiries:
     )
 else:
     selected_expiry = None
-    st.warning(
-        "Is symbol ke liye live option chain expiry dates available nahi hain."
+    st.info(
+        "Note: Is symbol ke liye live option chain direct available nahi hai, par analysis aur levels mil jayenge."
     )
 
 if st.button("Analyze Option Chain Setup"):
-    with st.spinner(f"Fetching live spot & option chain data for {symbol}..."):
+    with st.spinner(f"Fetching live spot & data for {symbol}..."):
         try:
             df_daily = ticker.history(period="7d", interval="1d")
 
@@ -107,6 +107,13 @@ if st.button("Analyze Option Chain Setup"):
                 close_position = (
                     (pdc - pdl) / daily_range if daily_range > 0 else 0.5
                 )
+
+                # Standard Pivot / Support & Resistance Calculations
+                pivot = (pdh + pdl + pdc) / 3
+                r1 = round((2 * pivot) - pdl, 2)
+                r2 = round(pivot + (pdh - pdl), 2)
+                s1 = round((2 * pivot) - pdh, 2)
+                s2 = round(pivot - (pdh - pdl), 2)
 
                 # CASE 1: Daily Closing Bias
                 case1_bias = "NEUTRAL"
@@ -138,7 +145,7 @@ if st.button("Analyze Option Chain Setup"):
                 suggested_option = "N/A"
                 found_option_price = 0.0
 
-                # Determine Bias
+                # Determine Bias & Option Chain Strike for ₹2-3
                 if "BULLISH SWEEP" in case2_bias or (
                     "BULLISH" in case1_bias and current_price > pdc
                 ):
@@ -150,47 +157,62 @@ if st.button("Analyze Option Chain Setup"):
                         max(entry_price + (daily_range * 1.2), pdh), 2
                     )
 
-                    # Option Chain se Calls data fetch karein aur ₹2-3 wala strike dhoondhein
                     if selected_expiry:
-                        opt_chain = ticker.option_chain(selected_expiry)
-                        calls = opt_chain.calls
-                        # Filter OTM calls (Strike > Current Price)
-                        otm_calls = calls[calls["strike"] > current_price].copy()
-                        if not otm_calls.empty:
-                            # Find strike jiska lastPrice ya bid ₹2 se ₹3 ke sabse kareeb ho
-                            otm_calls["diff"] = abs(otm_calls["lastPrice"] - 2.5)
-                            best_row = otm_calls.loc[otm_calls["diff"].idxmin()]
-                            strike_val = int(best_row["strike"])
-                            found_option_price = best_row["lastPrice"]
-                            option_action = "BUY OTM CALL (CE)"
-                            suggested_option = (
-                                f"{strike_val} CE ({selected_expiry})"
-                            )
+                        try:
+                            opt_chain = ticker.option_chain(selected_expiry)
+                            calls = opt_chain.calls
+                            otm_calls = calls[
+                                calls["strike"] > current_price
+                            ].copy()
+                            if not otm_calls.empty:
+                                otm_calls["diff"] = abs(
+                                    otm_calls["lastPrice"] - 2.5
+                                )
+                                best_row = otm_calls.loc[
+                                    otm_calls["diff"].idxmin()
+                                ]
+                                strike_val = int(best_row["strike"])
+                                found_option_price = best_row["lastPrice"]
+                                option_action = "BUY OTM CALL (CE)"
+                                suggested_option = (
+                                    f"{strike_val} CE ({selected_expiry})"
+                                )
+                        except Exception:
+                            pass
 
                 elif "BEARISH SWEEP" in case2_bias or (
                     "BEARISH" in case1_bias and current_price < pdc
                 ):
                     final_bias = "SELL (SHORT)"
-                    entry_price = current_price
-                    stop_loss = max(curr_high, pdh) * 1.002
-                    target_1 = entry_price - (daily_range * 0.60)
-                    target_2 = min(entry_price - (daily_range * 1.2), pdl)
+                    entry_price = round(current_price, 2)
+                    stop_loss = round(max(curr_high, pdh) * 1.002, 2)
+                    target_1 = round(entry_price - (daily_range * 0.60), 2)
+                    target_2 = round(
+                        min(entry_price - (daily_range * 1.2), pdl), 2
+                    )
 
-                    # Option Chain se Puts data fetch karein aur ₹2-3 wala strike dhoondhein
                     if selected_expiry:
-                        opt_chain = ticker.option_chain(selected_expiry)
-                        puts = opt_chain.puts
-                        # Filter OTM puts (Strike < Current Price)
-                        otm_puts = puts[puts["strike"] < current_price].copy()
-                        if not otm_puts.empty:
-                            otm_puts["diff"] = abs(otm_puts["lastPrice"] - 2.5)
-                            best_row = otm_puts.loc[otm_puts["diff"].idxmin()]
-                            strike_val = int(best_row["strike"])
-                            found_option_price = best_row["lastPrice"]
-                            option_action = "BUY OTM PUT (PE)"
-                            suggested_option = (
-                                f"{strike_val} PE ({selected_expiry})"
-                            )
+                        try:
+                            opt_chain = ticker.option_chain(selected_expiry)
+                            puts = opt_chain.puts
+                            otm_puts = puts[
+                                puts["strike"] < current_price
+                            ].copy()
+                            if not otm_puts.empty:
+                                otm_puts["diff"] = abs(
+                                    otm_puts["lastPrice"] - 2.5
+                                )
+                                best_row = otm_puts.loc[
+                                    otm_puts["diff"].idxmin()
+                                ]
+                                strike_val = int(best_row["strike"])
+                                found_option_price = best_row["lastPrice"]
+                                option_action = "BUY OTM PUT (PE)"
+                                suggested_option = (
+                                    f"{strike_val} PE ({selected_expiry})"
+                                )
+                        except Exception:
+                            pass
 
                 # Display Results
                 st.subheader(f"Results for: {symbol}")
@@ -199,6 +221,17 @@ if st.button("Analyze Option Chain Setup"):
                 col1.metric("Live Spot Price", f"₹{round(current_price, 2)}")
                 col2.metric("PDH (High)", f"₹{round(pdh, 2)}")
                 col3.metric("PDL (Low)", f"₹{round(pdl, 2)}")
+
+                # SUPPORT & RESISTANCE TABLE
+                st.markdown("---")
+                st.markdown("#### 📊 Support & Resistance Levels")
+
+                sr_data = {
+                    "Level Type": ["Supports", "Resistances"],
+                    "Level 1": [f"S1: ₹{s1}", f"R1: ₹{r1}"],
+                    "Level 2": [f"S2: ₹{s2}", f"R2: ₹{r2}"],
+                }
+                st.table(pd.DataFrame(sr_data))
 
                 st.markdown("---")
                 st.write(f"**[Case 1] Closing Bias:** {case1_bias}")
@@ -244,9 +277,5 @@ if st.button("Analyze Option Chain Setup"):
                         delta="Full Range Sweep",
                     )
 
-                    st.info(
-                        f"💡 **Option Chain Note:** Yeh strike direct live option chain se uthai gayi hai jiska current market price ₹2-3 ke sabse kareeb hai. Expiry ke din aise contracts tezi se move karte hain, par risk bhi high hota hai isliye strict discipline rakhein."
-                    )
-
         except Exception as e:
-            st.error(f"Error processing option chain data: {e}")
+            st.error(f"Error processing data: {e}")
