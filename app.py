@@ -12,7 +12,7 @@ st.set_page_config(
 
 st.title("📈 3-Case Daily Bias & Option Setup")
 st.write(
-    "Live Data, Support/Resistance aur ₹2-3 Option Chain ek hi jagah upar dekhein."
+    "Live Data, Support/Resistance (S1, S2, S3 & R1, R2, R3) aur ₹2-3 Option Chain."
 )
 
 # Top F&O Indices & Stocks Database
@@ -94,12 +94,15 @@ if st.button("Analyze Now", type="primary"):
                     (pdc - pdl) / daily_range if daily_range > 0 else 0.5
                 )
 
-                # Pivot / S&R Calculations
+                # Pivot & Extended S&R Calculations (S1, S2, S3 & R1, R2, R3)
                 pivot = (pdh + pdl + pdc) / 3
                 r1 = round((2 * pivot) - pdl, 2)
                 r2 = round(pivot + (pdh - pdl), 2)
+                r3 = round(pdh + 2 * (pivot - pdl), 2)
+
                 s1 = round((2 * pivot) - pdh, 2)
                 s2 = round(pivot - (pdh - pdl), 2)
+                s3 = round(pdl - 2 * (pdh - pivot), 2)
 
                 # Biases
                 case1_bias = (
@@ -198,11 +201,12 @@ if st.button("Analyze Now", type="primary"):
                 m2.metric("PDH", f"₹{round(pdh, 2)}")
                 m3.metric("PDL", f"₹{round(pdl, 2)}")
 
-                # Support & Resistance Table (Compact)
+                # S1, S2, S3 & R1, R2, R3 Table Format as requested
                 sr_data = {
-                    "Type": ["Support", "Resistance"],
+                    "Level Type": ["Supports", "Resistances"],
                     "Level 1": [f"S1: ₹{s1}", f"R1: ₹{r1}"],
                     "Level 2": [f"S2: ₹{s2}", f"R2: ₹{r2}"],
+                    "Level 3": [f"S3: ₹{s3}", f"R3: ₹{r3}"],
                 }
                 st.table(pd.DataFrame(sr_data))
 
