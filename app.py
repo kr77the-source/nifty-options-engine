@@ -5,7 +5,7 @@ import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias & Option Chain (Compact)",
+    page_title="3-Case Daily Bias & Option Chain",
     page_icon="📈",
     layout="centered",
 )
@@ -213,4 +213,17 @@ if st.button("Analyze Now", type="primary"):
                     )
                 elif final_bias == "SELL (SHORT)":
                     st.error(
-                        f"**BIAS:** {final_bias} | **Action:** {option_action} -> **{suggested
+                        f"**BIAS:** {final_bias} | **Action:** {option_action} -> **{suggested_option}** (LTP: ₹{round(found_option_price, 2)})"
+                    )
+                else:
+                    st.warning(f"**BIAS:** {final_bias} (No Clear Setup)")
+
+                # Targets & SL Compact Row
+                if final_bias in ["BUY (LONG)", "SELL (SHORT)"]:
+                    t_col1, t_col2, t_col3 = st.columns(3)
+                    t_col1.metric("Stop Loss", f"₹{stop_loss}")
+                    t_col2.metric("Target 1", f"₹{target_1}")
+                    t_col3.metric("Target 2", f"₹{target_2}")
+
+        except Exception as e:
+            st.error(f"Error: {e}")
