@@ -4,14 +4,14 @@ import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias & Option Setup System",
+    page_title="3-Case Daily Bias & Cheap Options (₹2-3) System",
     page_icon="📈",
     layout="centered",
 )
 
-st.title("📈 3-Case Daily Bias & F&O Options Setup")
+st.title("📈 3-Case Daily Bias & ₹2-3 Cheap Options Setup")
 st.write(
-    "Live F&O indices aur stocks analyze karke Setup ke hisab se **OTM Call Buy / Put Buy** Entry Suggetions dekhein."
+    "Live F&O data analyze karke **₹2-3 (Deep OTM)** wale options entry ke sath dekhein."
 )
 
 # Top F&O Indices & Stocks Database
@@ -74,7 +74,7 @@ expiry_type = st.selectbox(
     index=0,
 )
 
-if st.button("Analyze Options Setup"):
+if st.button("Analyze Cheap Options Setup"):
     with st.spinner(f"Fetching live data for {symbol}..."):
         try:
             ticker = yf.Ticker(symbol)
@@ -129,7 +129,7 @@ if st.button("Analyze Options Setup"):
 
                 # Determine Strike Step-up based on Underlying Price
                 if current_price > 20000:
-                    strike_step = 100  # Jaise Nifty / BankNifty / Heavy Stocks
+                    strike_step = 100
                 elif current_price > 5000:
                     strike_step = 50
                 elif current_price > 1000:
@@ -139,7 +139,7 @@ if st.button("Analyze Options Setup"):
                 else:
                     strike_step = 5
 
-                # Setup-based Strategy Calculations
+                # Setup-based Strategy Calculations for ₹2-3 Cheap Options
                 if "BULLISH SWEEP" in case2_bias or (
                     "BULLISH" in case1_bias and current_price > pdc
                 ):
@@ -151,14 +151,14 @@ if st.button("Analyze Options Setup"):
                         max(entry_price + (daily_range * 1.2), pdh), 2
                     )
 
-                    # Calculate OTM CALL (CE) Strike (1-Step OTM)
+                    # Far OTM Call for ₹2-3 Rate (approx 3 to 4 steps away or based on volatility)
                     atm_strike = (
                         round(current_price / strike_step) * strike_step
                     )
-                    otm_call_strike = atm_strike + strike_step
-                    option_action = f"BUY OTM CALL (CE)"
+                    cheap_otm_call_strike = atm_strike + (strike_step * 3)
+                    option_action = f"BUY CHEAP OTM CALL (₹2-3 Target)"
                     suggested_option = (
-                        f"{int(otm_call_strike)} CE ({expiry_type})"
+                        f"{int(cheap_otm_call_strike)} CE ({expiry_type})"
                     )
 
                 elif "BEARISH SWEEP" in case2_bias or (
@@ -172,14 +172,14 @@ if st.button("Analyze Options Setup"):
                         min(entry_price - (daily_range * 1.2), pdl), 2
                     )
 
-                    # Calculate OTM PUT (PE) Strike (1-Step OTM)
+                    # Far OTM Put for ₹2-3 Rate
                     atm_strike = (
                         round(current_price / strike_step) * strike_step
                     )
-                    otm_put_strike = atm_strike - strike_step
-                    option_action = f"BUY OTM PUT (PE)"
+                    cheap_otm_put_strike = atm_strike - (strike_step * 3)
+                    option_action = f"BUY CHEAP OTM PUT (₹2-3 Target)"
                     suggested_option = (
-                        f"{int(otm_put_strike)} PE ({expiry_type})"
+                        f"{int(cheap_otm_put_strike)} PE ({expiry_type})"
                     )
 
                 else:
@@ -207,14 +207,16 @@ if st.button("Analyze Options Setup"):
                 else:
                     st.warning(f"### UNDERLYING BIAS: {final_bias}")
 
-                # Options Trade Recommendation Box
+                # Options Trade Recommendation Box for Cheap Options
                 if final_bias in ["BUY (LONG)", "SELL (SHORT)"]:
-                    st.markdown("### 🎯 **SETUP-BASED OPTION TRADE ENTRY**")
+                    st.markdown(
+                        "### 🎯 **₹2-3 CHEAP OPTIONS ENTRY (HIGH RISK / HIGH REWARD)**"
+                    )
 
                     opt_col1, opt_col2 = st.columns(2)
                     opt_col1.metric("Option Action", option_action)
                     opt_col2.metric(
-                        "Suggested Strike & Expiry", suggested_option
+                        "Suggested Cheap Strike", suggested_option
                     )
 
                     st.markdown("---")
@@ -235,8 +237,8 @@ if st.button("Analyze Options Setup"):
                         delta="Full Range Sweep",
                     )
 
-                    st.info(
-                        f"💡 **Rules:** Step-up logic ke hisab se **{suggested_option}** ka OTM contract select kiya gaya hai. Target 1 spot par hitting hone par option premium par partial profit book karein."
+                    st.warning(
+                        f"⚠️ **Cheap Options Note:** Yeh **{suggested_option}** ek Far OTM contract hai jiska premium ₹2-3 ke aas-pass mil sakta hai (khaas kar expiry ke din). Isme risk high hota hai kyunki agar market momentum nahi aaya toh premium zero ho sakta hai. Chhote amount ke sath hi trade karein!"
                     )
 
         except Exception as e:
