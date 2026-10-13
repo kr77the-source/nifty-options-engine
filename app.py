@@ -11,7 +11,6 @@ st.set_page_config(
 )
 
 st.title("📈 3-Case Daily Bias & Option Setup")
-st.write("Live Data, Support & Resistance Levels aur ₹2-3 Option Chain.")
 
 # Top F&O Indices & Stocks Database
 STOCK_DATABASE = [
@@ -37,14 +36,12 @@ STOCK_DATABASE = [
     "KOTAKBANK.NS",
 ]
 
-# Compact Input Layout using Columns
+# Compact Input Layout
 col_inp1, col_inp2 = st.columns(2)
 with col_inp1:
     selected_symbol = st.selectbox("Stock / Index:", options=STOCK_DATABASE)
 with col_inp2:
-    custom_ticker = st.text_input(
-        "Custom Ticker (Opt):", placeholder="e.g. NIFTY"
-    )
+    custom_ticker = st.text_input("Custom Ticker:", placeholder="e.g. NIFTY")
 
 if custom_ticker.strip():
     symbol = custom_ticker.strip().upper()
@@ -64,8 +61,7 @@ except Exception:
     available_expiries = []
 
 selected_expiry = st.selectbox(
-    "Option Chain Expiry:",
-    options=available_expiries if available_expiries else ["N/A"],
+    "Expiry:", options=available_expiries if available_expiries else ["N/A"]
 )
 
 if st.button("Analyze Now", type="primary"):
@@ -92,7 +88,7 @@ if st.button("Analyze Now", type="primary"):
                     (pdc - pdl) / daily_range if daily_range > 0 else 0.5
                 )
 
-                # Pivot & S&R Calculations (S1, S2, S3 & R1, R2, R3)
+                # Pivot & S&R Calculations
                 pivot = (pdh + pdl + pdc) / 3
                 r1 = round((2 * pivot) - pdl, 2)
                 r2 = round(pivot + (pdh - pdl), 2)
@@ -190,22 +186,36 @@ if st.button("Analyze Now", type="primary"):
                         except Exception:
                             pass
 
-                # --- COMPACT TOP DASHBOARD DISPLAY ---
-                st.markdown(f"### 📌 Dashboard: {symbol}")
+                # --- ULTRA COMPACT DASHBOARD (ALL TOGETHER AT TOP) ---
+                st.markdown(f"### 📌 {symbol} Dashboard")
 
-                # Top Row: Spot, PDH, PDL Metrics
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Spot", f"₹{entry_price}")
-                m2.metric("PDH", f"₹{round(pdh, 2)}")
-                m3.metric("PDL", f"₹{round(pdl, 2)}")
+                # HTML / Markdown compact card for Spot, PDH, PDL + S&R side-by-side view
+                st.markdown(
+                    f"""
+                    <div style="background-color: #1e1e1e; padding: 10px; border-radius: 8px; border: 1px solid #333;">
+                        <table style="width: 100%; color: white; text-align: center; font-size: 14px;">
+                            <tr style="border-bottom: 1px solid #444;">
+                                <td><b>Spot:</b> ₹{entry_price}</td>
+                                <td><b>PDH:</b> ₹{round(pdh, 2)}</td>
+                                <td><b>PDL:</b> ₹{round(pdl, 2)}</td>
+                            </tr>
+                        </table>
+                        <hr style="margin: 8px 0; border-color: #444;">
+                        <table style="width: 100%; color: white; text-align: center; font-size: 13px;">
+                            <tr style="background-color: #2a2a2a;">
+                                <th>Supports (S)</th>
+                                <th>Resistances (R)</th>
+                            </tr>
+                            <tr><td>S1: ₹{s1}</td><td>R1: ₹{r1}</td></tr>
+                            <tr><td>S2: ₹{s2}</td><td>R2: ₹{r2}</td></tr>
+                            <tr><td>S3: ₹{s3}</td><td>R3: ₹{r3}</td></tr>
+                        </table>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-                # Custom Clean Table without index numbers, matching your sketch layout
-                sr_data = {
-                    "Supports (S)": [f"S1: ₹{s1}", f"S2: ₹{s2}", f"S3: ₹{s3}"],
-                    "Resistances (R)": [f"R1: ₹{r1}", f"R2: ₹{r2}", f"R3: ₹{r3}"],
-                }
-                df_sr = pd.DataFrame(sr_data)
-                st.table(df_sr)
+                st.markdown("<br>", unsafe_allow_html=True)
 
                 # Final Bias & Option Setup Box
                 if final_bias == "BUY (LONG)":
