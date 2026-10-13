@@ -1,46 +1,37 @@
-import datetime
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias & Option Chain",
-    page_icon="📈",
-    layout="centered",
+    page_title="Live Option Chain Viewer", page_icon="📊", layout="centered"
 )
 
-st.title("📈 3-Case Daily Bias & Option Setup")
+st.title("📊 Live Option Chain Viewer")
+st.write(
+    "Stock ya Index aur Expiry select karke direct Option Chain table dekhein."
+)
 
 # Top F&O Indices & Stocks Database
 STOCK_DATABASE = [
     "^NSEI",  # Nifty 50
     "^BSESN",  # Sensex
     "^NSEBANK",  # Bank Nifty
-    "HCLTECH.NS",  # HCL Technologies
-    "TCS.NS",  # TCS
-    "APOLLOHOSP.NS",  # Apollo Hospitals
+    "TCS.NS",
     "RELIANCE.NS",
     "HDFCBANK.NS",
     "ICICIBANK.NS",
     "INFY.NS",
-    "BHARTIARTL.NS",
-    "ITC.NS",
     "SBIN.NS",
     "BAJFINANCE.NS",
     "MARUTI.NS",
-    "SUNPHARMA.NS",
-    "TATASTEEL.NS",
-    "TATAMOTORS.NS",
-    "AXISBANK.NS",
-    "KOTAKBANK.NS",
 ]
 
-# Compact Input Layout
-col_inp1, col_inp2 = st.columns(2)
-with col_inp1:
+# 1. Selection
+col1, col2 = st.columns(2)
+with col1:
     selected_symbol = st.selectbox("Stock / Index:", options=STOCK_DATABASE)
-with col_inp2:
+with col_inp2 if "col_inp2" in locals() else col2:  # Safe fallback
     custom_ticker = st.text_input("Custom Ticker:", placeholder="e.g. NIFTY")
 
 if custom_ticker.strip():
@@ -54,187 +45,62 @@ if custom_ticker.strip():
 else:
     symbol = selected_symbol
 
+# 2. Expiry Fetching
 ticker = yf.Ticker(symbol)
 try:
-    available_expiries = ticker.options
+    expiries = ticker.options
 except Exception:
-    available_expiries = []
+    expiries = []
 
-selected_expiry = st.selectbox(
-    "Expiry:", options=available_expiries if available_expiries else ["N/A"]
-)
+if expiries:
+    selected_expiry = st.selectbox("Expiry Date:", options=expiries)
+else:
+    selected_expiry = None
+    st.warning("Is symbol ke liye option chain expiries available nahi hain.")
 
-if st.button("Analyze Now", type="primary"):
-    with st.spinner("Fetching data..."):
-        try:
-            df_daily = ticker.history(period="7d", interval="1d")
+# 3. Load Option Chain Button
+if st.button("Show Option Chain", type="primary"):
+    if selected_expiry:
+        with st.spinner("Option Chain load ho rahi hai..."):
+            try:
+                opt_chain = ticker.option_chain(selected_expiry)
 
-            if len(df_daily) < 2:
-                st.error("Error: Data fetch nahi ho paya.")
-            else:
-                prev_day = df_daily.iloc[-2]
-                curr_day = df_daily.iloc[-1]
-
-                pdh = prev_day["High"]
-                pdl = prev_day["Low"]
-                pdc = prev_day["Close"]
-
-                curr_high = curr_day["High"]
-                curr_low = curr_day["Low"]
-                curr_close = curr_day["Close"]
-
-                daily_range = pdh - pdl
-                close_position = (
-                    (pdc - pdl) / daily_range if daily_range > 0 else 0.5
+                # Format Calls
+                calls = opt_chain.calls[
+                    ["strike", "lastPrice", "openInterest", "volume"]
+                ].copy()
+                calls.rename(
+                    columns={
+                        "lastPrice": "Call Price",
+                        "openInterest": "Call OI",
+                        "volume": "Call Vol",
+                    },
+                    inplace=True,
                 )
 
-                # Pivot & S&R Calculations
-                pivot = (pdh + pdl + pdc) / 3
-                r1 = round((2 * pivot) - pdl, 2)
-                r2 = round(pivot + (pdh - pdl), 2)
-                r3 = round(pdh + 2 * (pivot - pdl), 2)
-
-                s1 = round((2 * pivot) - pdh, 2)
-                s2 = round(pivot - (pdh - pdl), 2)
-                s3 = round(pdl - 2 * (pdh - pivot), 2)
-
-                # Biases
-                case1_bias = (
-                    "BULLISH"
-                    if close_position >= 0.70
-                    else ("BEARISH" if close_position <= 0.30 else "NEUTRAL")
-                )
-                case2_bias = (
-                    "BEARISH SWEEP"
-                    if (curr_high > pdh and curr_close < pdh)
-                    else (
-                        "BULLISH SWEEP"
-                        if (curr_low < pdl and curr_close > pdl)
-                        else "NO SWEEP"
-                    )
+                # Format Puts
+                puts = opt_chain.puts[
+                    ["strike", "lastPrice", "openInterest", "volume"]
+                ].copy()
+                puts.rename(
+                    columns={
+                        "lastPrice": "Put Price",
+                        "openInterest": "Put OI",
+                        "volume": "Put Vol",
+                    },
+                    inplace=True,
                 )
 
-                df_15m = ticker.history(period="2d", interval="15m")
-                current_price = (
-                    df_15m.iloc[-1]["Close"] if not df_15m.empty else curr_close
-                )
+                # Merge both on Strike
+                chain_df = pd.merge(
+                    calls, puts, on="strike", how="outer"
+                ).sort_values(by="strike")
+                chain_df.set_index("strike", inplace=True)
 
-                final_bias = "NEUTRAL"
-                entry_price = round(current_price, 2)
-                stop_loss = 0.0
-                target_1 = 0.0
-                target_2 = 0.0
-                option_action = "NO TRADE"
-                suggested_option = "N/A"
-                found_option_price = 0.0
+                st.success(f"Option Chain for {symbol} — Expiry: {selected_expiry}")
+                st.dataframe(chain_df, use_container_width=True)
 
-                if "BULLISH SWEEP" in case2_bias or (
-                    "BULLISH" in case1_bias and current_price > pdc
-                ):
-                    final_bias = "BUY (LONG)"
-                    stop_loss = round(min(curr_low, pdl) * 0.998, 2)
-                    target_1 = round(entry_price + (daily_range * 0.60), 2)
-                    target_2 = round(
-                        max(entry_price + (daily_range * 1.2), pdh), 2
-                    )
-
-                    if selected_expiry and selected_expiry != "N/A":
-                        try:
-                            opt_chain = ticker.option_chain(selected_expiry)
-                            otm_calls = opt_chain.calls[
-                                opt_chain.calls["strike"] > current_price
-                            ].copy()
-                            if not otm_calls.empty:
-                                otm_calls["diff"] = abs(
-                                    otm_calls["lastPrice"] - 2.5
-                                )
-                                best_row = otm_calls.loc[
-                                    otm_calls["diff"].idxmin()
-                                ]
-                                suggested_option = f"{int(best_row['strike'])} CE ({selected_expiry})"
-                                found_option_price = best_row["lastPrice"]
-                                option_action = "BUY OTM CALL"
-                        except Exception:
-                            pass
-
-                elif "BEARISH SWEEP" in case2_bias or (
-                    "BEARISH" in case1_bias and current_price < pdc
-                ):
-                    final_bias = "SELL (SHORT)"
-                    stop_loss = round(max(curr_high, pdh) * 1.002, 2)
-                    target_1 = round(entry_price - (daily_range * 0.60), 2)
-                    target_2 = round(
-                        min(entry_price - (daily_range * 1.2), pdl), 2
-                    )
-
-                    if selected_expiry and selected_expiry != "N/A":
-                        try:
-                            opt_chain = ticker.option_chain(selected_expiry)
-                            otm_puts = opt_chain.puts[
-                                opt_chain.puts["strike"] < current_price
-                            ].copy()
-                            if not otm_puts.empty:
-                                otm_puts["diff"] = abs(
-                                    otm_puts["lastPrice"] - 2.5
-                                )
-                                best_row = otm_puts.loc[
-                                    otm_puts["diff"].idxmin()
-                                ]
-                                suggested_option = f"{int(best_row['strike'])} PE ({selected_expiry})"
-                                found_option_price = best_row["lastPrice"]
-                                option_action = "BUY OTM PUT"
-                        except Exception:
-                            pass
-
-                # --- ULTRA COMPACT DASHBOARD (ALL TOGETHER AT TOP) ---
-                st.markdown(f"### 📌 {symbol} Dashboard")
-
-                # HTML / Markdown compact card for Spot, PDH, PDL + S&R side-by-side view
-                st.markdown(
-                    f"""
-                    <div style="background-color: #1e1e1e; padding: 10px; border-radius: 8px; border: 1px solid #333;">
-                        <table style="width: 100%; color: white; text-align: center; font-size: 14px;">
-                            <tr style="border-bottom: 1px solid #444;">
-                                <td><b>Spot:</b> ₹{entry_price}</td>
-                                <td><b>PDH:</b> ₹{round(pdh, 2)}</td>
-                                <td><b>PDL:</b> ₹{round(pdl, 2)}</td>
-                            </tr>
-                        </table>
-                        <hr style="margin: 8px 0; border-color: #444;">
-                        <table style="width: 100%; color: white; text-align: center; font-size: 13px;">
-                            <tr style="background-color: #2a2a2a;">
-                                <th>Supports (S)</th>
-                                <th>Resistances (R)</th>
-                            </tr>
-                            <tr><td>S1: ₹{s1}</td><td>R1: ₹{r1}</td></tr>
-                            <tr><td>S2: ₹{s2}</td><td>R2: ₹{r2}</td></tr>
-                            <tr><td>S3: ₹{s3}</td><td>R3: ₹{r3}</td></tr>
-                        </table>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                st.markdown("<br>", unsafe_allow_html=True)
-
-                # Final Bias & Option Setup Box
-                if final_bias == "BUY (LONG)":
-                    st.success(
-                        f"**BIAS:** {final_bias} | **Action:** {option_action} -> **{suggested_option}** (LTP: ₹{round(found_option_price, 2)})"
-                    )
-                elif final_bias == "SELL (SHORT)":
-                    st.error(
-                        f"**BIAS:** {final_bias} | **Action:** {option_action} -> **{suggested_option}** (LTP: ₹{round(found_option_price, 2)})"
-                    )
-                else:
-                    st.warning(f"**BIAS:** {final_bias} (No Clear Setup)")
-
-                # Targets & SL Compact Row
-                if final_bias in ["BUY (LONG)", "SELL (SHORT)"]:
-                    t_col1, t_col2, t_col3 = st.columns(3)
-                    t_col1.metric("Stop Loss", f"₹{stop_loss}")
-                    t_col2.metric("Target 1", f"₹{target_1}")
-                    t_col3.metric("Target 2", f"₹{target_2}")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
+            except Exception as e:
+                st.error(f"Error loading option chain: {e}")
+    else:
+        st.error("Kripya valid expiry select karein.")
