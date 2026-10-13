@@ -4,17 +4,17 @@ import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias System - F&O",
+    page_title="3-Case Daily Bias & Option Setup System",
     page_icon="📈",
     layout="centered",
 )
 
-st.title("📈 3-Case Daily Bias System (F&O)")
+st.title("📈 3-Case Daily Bias & F&O Options Setup")
 st.write(
-    "Live F&O indices aur stocks data analyze karke Buy/Sell Bias, Stop Loss aur Dynamic Targets dekhein."
+    "Live F&O indices aur stocks analyze karke Setup ke hisab se **OTM Call Buy / Put Buy** Entry Suggetions dekhein."
 )
 
-# Top F&O Indices & Stocks Database (As per attached F&O reference)
+# Top F&O Indices & Stocks Database
 STOCK_DATABASE = [
     "^NSEI",  # Nifty 50
     "^BSESN",  # Sensex
@@ -36,25 +36,16 @@ STOCK_DATABASE = [
     "TATAMOTORS.NS",
     "AXISBANK.NS",
     "KOTAKBANK.NS",
-    "M&M.NS",
-    "NTPC.NS",
-    "TITAN.NS",
-    "ADANIENT.NS",
-    "ADANIPORTS.NS",
-    "ULTRACEMCO.NS",
-    "ASIANPAINT.NS",
-    "BAJAJ-AUTO.NS",
-    "JSWSTEEL.NS",
 ]
 
-# Built-in searchable selectbox
+# 1. Share / Index Selection
 selected_symbol = st.selectbox(
-    "F&O Stock / Index Choose Karein (Type to search):",
+    "1. Stock / Index Choose Karein (Type to search):",
     options=STOCK_DATABASE,
     index=0,
 )
 
-# Optional text box agar koi dusra F&O ticker analyze karna ho
+# Custom ticker input option
 custom_ticker = st.text_input(
     "Ya phir koi dusra F&O Ticker yahan type karein (Optional):",
     placeholder="e.g. NIFTY or RELIANCE",
@@ -71,7 +62,19 @@ if custom_ticker.strip():
 else:
     symbol = selected_symbol
 
-if st.button("Analyze Bias"):
+# 2. Expiry Selection Dropdown
+st.markdown("---")
+expiry_type = st.selectbox(
+    "2. Option Expiry Choose Karein:",
+    options=[
+        "Current Weekly Expiry",
+        "Next Weekly Expiry",
+        "Monthly Expiry",
+    ],
+    index=0,
+)
+
+if st.button("Analyze Options Setup"):
     with st.spinner(f"Fetching live data for {symbol}..."):
         try:
             ticker = yf.Ticker(symbol)
@@ -105,7 +108,7 @@ if st.button("Analyze Bias"):
                 elif close_position <= 0.30:
                     case1_bias = "BEARISH (Strong Low Close)"
 
-                # CASE 2: Liquidity Sweep (PDH/PDL Sweep)
+                # CASE 2: Liquidity Sweep
                 case2_bias = "NO SWEEP"
                 if curr_high > pdh and curr_close < pdh:
                     case2_bias = "BEARISH SWEEP (BSL Grabbed above PDH)"
@@ -124,9 +127,19 @@ if st.button("Analyze Bias"):
                 target_1 = 0.0
                 target_2 = 0.0
 
-                # Volatility Range %
-                range_pct = (daily_range / pdc) * 100 if pdc > 0 else 1.5
+                # Determine Strike Step-up based on Underlying Price
+                if current_price > 20000:
+                    strike_step = 100  # Jaise Nifty / BankNifty / Heavy Stocks
+                elif current_price > 5000:
+                    strike_step = 50
+                elif current_price > 1000:
+                    strike_step = 20
+                elif current_price > 500:
+                    strike_step = 10
+                else:
+                    strike_step = 5
 
+                # Setup-based Strategy Calculations
                 if "BULLISH SWEEP" in case2_bias or (
                     "BULLISH" in case1_bias and current_price > pdc
                 ):
@@ -136,6 +149,16 @@ if st.button("Analyze Bias"):
                     target_1 = round(entry_price + (daily_range * 0.60), 2)
                     target_2 = round(
                         max(entry_price + (daily_range * 1.2), pdh), 2
+                    )
+
+                    # Calculate OTM CALL (CE) Strike (1-Step OTM)
+                    atm_strike = (
+                        round(current_price / strike_step) * strike_step
+                    )
+                    otm_call_strike = atm_strike + strike_step
+                    option_action = f"BUY OTM CALL (CE)"
+                    suggested_option = (
+                        f"{int(otm_call_strike)} CE ({expiry_type})"
                     )
 
                 elif "BEARISH SWEEP" in case2_bias or (
@@ -149,49 +172,71 @@ if st.button("Analyze Bias"):
                         min(entry_price - (daily_range * 1.2), pdl), 2
                     )
 
+                    # Calculate OTM PUT (PE) Strike (1-Step OTM)
+                    atm_strike = (
+                        round(current_price / strike_step) * strike_step
+                    )
+                    otm_put_strike = atm_strike - strike_step
+                    option_action = f"BUY OTM PUT (PE)"
+                    suggested_option = (
+                        f"{int(otm_put_strike)} PE ({expiry_type})"
+                    )
+
+                else:
+                    option_action = "NO TRADE / WAIT FOR SETUP"
+                    suggested_option = "N/A"
+
                 # Display Results
                 st.subheader(f"Results for: {symbol}")
 
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Live Price", f"₹{round(current_price, 2)}")
+                col1.metric("Live Spot Price", f"₹{round(current_price, 2)}")
                 col2.metric("PDH (High)", f"₹{round(pdh, 2)}")
                 col3.metric("PDL (Low)", f"₹{round(pdl, 2)}")
 
                 st.markdown("---")
+                st.write(f"**Selected Expiry:** {expiry_type}")
                 st.write(f"**[Case 1] Closing Bias:** {case1_bias}")
                 st.write(f"**[Case 2] Liquidity Sweep:** {case2_bias}")
-                st.write(
-                    f"**[Case 3] Average Daily Volatility Range:** ₹{round(daily_range, 2)} ({round(range_pct, 2)}%)"
-                )
                 st.markdown("---")
 
                 if final_bias == "BUY (LONG)":
-                    st.success(f"### FINAL BIAS: {final_bias}")
+                    st.success(f"### UNDERLYING BIAS: {final_bias}")
                 elif final_bias == "SELL (SHORT)":
-                    st.error(f"### FINAL BIAS: {final_bias}")
+                    st.error(f"### UNDERLYING BIAS: {final_bias}")
                 else:
-                    st.warning(f"### FINAL BIAS: {final_bias}")
+                    st.warning(f"### UNDERLYING BIAS: {final_bias}")
 
+                # Options Trade Recommendation Box
                 if final_bias in ["BUY (LONG)", "SELL (SHORT)"]:
-                    res_col1, res_col2 = st.columns(2)
-                    res_col1.metric("Entry Price", f"₹{entry_price}")
-                    res_col2.metric("Stop Loss (Strict)", f"₹{stop_loss}")
+                    st.markdown("### 🎯 **SETUP-BASED OPTION TRADE ENTRY**")
 
-                    st.markdown("#### 🎯 Range-Calibrated Targets (F&O Rules)")
+                    opt_col1, opt_col2 = st.columns(2)
+                    opt_col1.metric("Option Action", option_action)
+                    opt_col2.metric(
+                        "Suggested Strike & Expiry", suggested_option
+                    )
+
+                    st.markdown("---")
+                    res_col1, res_col2 = st.columns(2)
+                    res_col1.metric("Spot Entry Price", f"₹{entry_price}")
+                    res_col2.metric("Spot Stop Loss", f"₹{stop_loss}")
+
+                    st.markdown("#### 🎯 Spot Target Levels")
                     t_col1, t_col2 = st.columns(2)
                     t_col1.metric(
-                        "Target 1 (Book 75% Profits)",
+                        "Target 1 (Spot)",
                         f"₹{target_1}",
                         delta="60% Day Range",
                     )
                     t_col2.metric(
-                        "Target 2 (Opposite Liquidity Exit)",
+                        "Target 2 (Spot)",
                         f"₹{target_2}",
                         delta="Full Range Sweep",
                     )
 
                     st.info(
-                        "💡 **F&O Target Discipline:** Indices aur F&O stocks ke liye Target 1 milte hi 75% profit book karein aur SL cost par trail kar dein."
+                        f"💡 **Rules:** Step-up logic ke hisab se **{suggested_option}** ka OTM contract select kiya gaya hai. Target 1 spot par hitting hone par option premium par partial profit book karein."
                     )
 
         except Exception as e:
