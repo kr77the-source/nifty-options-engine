@@ -5,12 +5,14 @@ import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias & S&R System", page_icon="📈", layout="centered"
+    page_title="3-Case Daily Bias & Option Setup",
+    page_icon="📈",
+    layout="centered",
 )
 
-st.title("📈 3-Case Daily Bias & S&R Dashboard")
+st.title("📈 3-Case Daily Bias & Option Setup Dashboard")
 st.write(
-    "Live Stock/Index data, Daily Bias, aur Support/Resistance levels upar dekhein."
+    "Live Data, Support/Resistance aur Expiry-based Option Strike Setup dekhein."
 )
 
 # Top F&O Indices & Stocks Database
@@ -32,7 +34,7 @@ STOCK_DATABASE = [
     "TATAMOTORS.NS",
 ]
 
-# Compact Input Layout
+# Inputs Layout
 col_inp1, col_inp2 = st.columns(2)
 with col_inp1:
     selected_symbol = st.selectbox("Stock / Index:", options=STOCK_DATABASE)
@@ -49,6 +51,17 @@ if custom_ticker.strip():
         symbol += ".NS"
 else:
     symbol = selected_symbol
+
+# Expiry Selection Dropdown
+expiry_type = st.selectbox(
+    "Option Expiry Choose Karein:",
+    options=[
+        "Current Weekly Expiry",
+        "Next Weekly Expiry",
+        "Monthly Expiry",
+    ],
+    index=0,
+)
 
 if st.button("Analyze Now", type="primary"):
     with st.spinner(f"Fetching data for {symbol}..."):
@@ -87,7 +100,7 @@ if st.button("Analyze Now", type="primary"):
                 s2 = round(pivot - (pdh - pdl), 2)
                 s3 = round(pdl - 2 * (pdh - pivot), 2)
 
-                # Case 1 & Case 2 Biases
+                # Biases
                 case1_bias = (
                     "BULLISH"
                     if close_position >= 0.70
@@ -113,6 +126,20 @@ if st.button("Analyze Now", type="primary"):
                 stop_loss = 0.0
                 target_1 = 0.0
                 target_2 = 0.0
+                option_action = "N/A"
+                suggested_option = "N/A"
+
+                # Strike Step calculation based on price
+                if current_price > 20000:
+                    strike_step = 100
+                elif current_price > 5000:
+                    strike_step = 50
+                elif current_price > 1000:
+                    strike_step = 20
+                elif current_price > 500:
+                    strike_step = 10
+                else:
+                    strike_step = 5
 
                 if "BULLISH SWEEP" in case2_bias or (
                     "BULLISH" in case1_bias and current_price > pdc
@@ -122,6 +149,17 @@ if st.button("Analyze Now", type="primary"):
                     target_1 = round(entry_price + (daily_range * 0.60), 2)
                     target_2 = round(
                         max(entry_price + (daily_range * 1.2), pdh), 2
+                    )
+
+                    atm_strike = (
+                        round(current_price / strike_step) * strike_step
+                    )
+                    otm_call_strike = atm_strike + (
+                        strike_step * 2
+                    )  # OTM Strike
+                    option_action = "BUY OTM CALL (CE)"
+                    suggested_option = (
+                        f"{int(otm_call_strike)} CE ({expiry_type})"
                     )
 
                 elif "BEARISH SWEEP" in case2_bias or (
@@ -134,6 +172,15 @@ if st.button("Analyze Now", type="primary"):
                         min(entry_price - (daily_range * 1.2), pdl), 2
                     )
 
+                    atm_strike = (
+                        round(current_price / strike_step) * strike_step
+                    )
+                    otm_put_strike = atm_strike - (strike_step * 2)  # OTM Strike
+                    option_action = "BUY OTM PUT (PE)"
+                    suggested_option = (
+                        f"{int(otm_put_strike)} PE ({expiry_type})"
+                    )
+
                 # --- DASHBOARD DISPLAY ---
                 st.markdown(f"### 📌 Dashboard: {symbol}")
 
@@ -143,7 +190,7 @@ if st.button("Analyze Now", type="primary"):
                 m2.metric("PDH", f"₹{round(pdh, 2)}")
                 m3.metric("PDL", f"₹{round(pdl, 2)}")
 
-                # Support & Resistance Table (Side-by-Side Clean Layout)
+                # S&R Table
                 sr_data = {
                     "Supports (S)": [f"S1: ₹{s1}", f"S2: ₹{s2}", f"S3: ₹{s3}"],
                     "Resistances (R)": [f"R1: ₹{r1}", f"R2: ₹{r2}", f"R3: ₹{r3}"],
@@ -158,8 +205,14 @@ if st.button("Analyze Now", type="primary"):
                 else:
                     st.warning(f"**FINAL BIAS:** {final_bias}")
 
-                # Targets & SL Row
+                # Option Setup Recommendation Box
                 if final_bias in ["BUY (LONG)", "SELL (SHORT)"]:
+                    st.markdown("### 🎯 **SUGGESTED OPTION SETUP**")
+                    opt_col1, opt_col2 = st.columns(2)
+                    opt_col1.metric("Option Action", option_action)
+                    opt_col2.metric("Suggested Strike", suggested_option)
+
+                    st.markdown("---")
                     t_col1, t_col2, t_col3 = st.columns(3)
                     t_col1.metric("Stop Loss", f"₹{stop_loss}")
                     t_col2.metric("Target 1", f"₹{target_1}")
