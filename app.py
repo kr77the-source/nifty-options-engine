@@ -12,7 +12,7 @@ st.set_page_config(
 
 st.title("📈 3-Case Daily Bias & Option Setup")
 st.write(
-    "Live Data, Support/Resistance (S1, S2, S3 & R1, R2, R3) aur ₹2-3 Option Chain."
+    "Live Data, Support/Resistance (S1-S3, R1-R3) aur ₹2-3 Option Chain ek sath upar."
 )
 
 # Top F&O Indices & Stocks Database
@@ -94,7 +94,7 @@ if st.button("Analyze Now", type="primary"):
                     (pdc - pdl) / daily_range if daily_range > 0 else 0.5
                 )
 
-                # Pivot & Extended S&R Calculations (S1, S2, S3 & R1, R2, R3)
+                # Pivot & S&R Calculations (S1, S2, S3 & R1, R2, R3)
                 pivot = (pdh + pdl + pdc) / 3
                 r1 = round((2 * pivot) - pdl, 2)
                 r2 = round(pivot + (pdh - pdl), 2)
@@ -192,23 +192,22 @@ if st.button("Analyze Now", type="primary"):
                         except Exception:
                             pass
 
-                # --- COMPACT TOP RESULTS DISPLAY ---
-                st.markdown(f"### 📌 Results: {symbol}")
+                # --- COMPACT TOP DASHBOARD DISPLAY ---
+                st.markdown(f"### 📌 Dashboard: {symbol}")
 
-                # Metric Row 1
+                # Top Row: Spot, PDH, PDL Metrics
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Spot Price", f"₹{entry_price}")
+                m1.metric("Spot", f"₹{entry_price}")
                 m2.metric("PDH", f"₹{round(pdh, 2)}")
                 m3.metric("PDL", f"₹{round(pdl, 2)}")
 
-                # S1, S2, S3 & R1, R2, R3 Table Format as requested
+                # S&R Table (S1-S3 & R1-R3 Side-by-Side Compact Layout)
                 sr_data = {
-                    "Level Type": ["Supports", "Resistances"],
-                    "Level 1": [f"S1: ₹{s1}", f"R1: ₹{r1}"],
-                    "Level 2": [f"S2: ₹{s2}", f"R2: ₹{r2}"],
-                    "Level 3": [f"S3: ₹{s3}", f"R3: ₹{r3}"],
+                    "Level": ["Level 1", "Level 2", "Level 3"],
+                    "Support": [f"₹{s1}", f"₹{s2}", f"₹{s3}"],
+                    "Resistance": [f"₹{r1}", f"₹{r2}", f"₹{r3}"],
                 }
-                st.table(pd.DataFrame(sr_data))
+                st.dataframe(pd.DataFrame(sr_data), use_container_width=True)
 
                 # Final Bias & Option Setup Box
                 if final_bias == "BUY (LONG)":
