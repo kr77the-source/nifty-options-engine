@@ -5,14 +5,14 @@ import yfinance as yf
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="3-Case Daily Bias & Option Chain (₹2-3)",
+    page_title="3-Case Daily Bias & Option Chain (Compact)",
     page_icon="📈",
     layout="centered",
 )
 
-st.title("📈 3-Case Daily Bias & Live Option Chain Setup")
+st.title("📈 3-Case Daily Bias & Option Setup")
 st.write(
-    "Live F&O Data, **Support/Resistance Table**, aur ₹2-3 (Cheap OTM) options find karein."
+    "Live Data, Support/Resistance aur ₹2-3 Option Chain ek hi jagah upar dekhein."
 )
 
 # Top F&O Indices & Stocks Database
@@ -39,18 +39,14 @@ STOCK_DATABASE = [
     "KOTAKBANK.NS",
 ]
 
-# 1. Share / Index Selection
-selected_symbol = st.selectbox(
-    "1. Stock / Index Choose Karein (Type to search):",
-    options=STOCK_DATABASE,
-    index=0,
-)
-
-# Custom ticker input option
-custom_ticker = st.text_input(
-    "Ya phir koi dusra F&O Ticker yahan type karein (Optional):",
-    placeholder="e.g. NIFTY or RELIANCE",
-)
+# Compact Input Layout using Columns
+col_inp1, col_inp2 = st.columns(2)
+with col_inp1:
+    selected_symbol = st.selectbox("Stock / Index:", options=STOCK_DATABASE)
+with col_inp2:
+    custom_ticker = st.text_input(
+        "Custom Ticker (Opt):", placeholder="e.g. NIFTY"
+    )
 
 if custom_ticker.strip():
     symbol = custom_ticker.strip().upper()
@@ -63,34 +59,24 @@ if custom_ticker.strip():
 else:
     symbol = selected_symbol
 
-# Fetching available option expiry dates safely
 ticker = yf.Ticker(symbol)
 try:
     available_expiries = ticker.options
 except Exception:
     available_expiries = []
 
-st.markdown("---")
-if available_expiries:
-    selected_expiry = st.selectbox(
-        "2. Option Chain Expiry Choose Karein (Live from NSE):",
-        options=available_expiries,
-    )
-else:
-    selected_expiry = None
-    st.info(
-        "Note: Is symbol ke liye live option chain direct available nahi hai, par analysis aur levels mil jayenge."
-    )
+selected_expiry = st.selectbox(
+    "Option Chain Expiry:",
+    options=available_expiries if available_expiries else ["N/A"],
+)
 
-if st.button("Analyze Option Chain Setup"):
-    with st.spinner(f"Fetching live spot & data for {symbol}..."):
+if st.button("Analyze Now", type="primary"):
+    with st.spinner("Fetching data..."):
         try:
             df_daily = ticker.history(period="7d", interval="1d")
 
             if len(df_daily) < 2:
-                st.error(
-                    "Error: Live data fetch nahi ho paya. Ticker symbol check karein."
-                )
+                st.error("Error: Data fetch nahi ho paya.")
             else:
                 prev_day = df_daily.iloc[-2]
                 curr_day = df_daily.iloc[-1]
@@ -108,61 +94,58 @@ if st.button("Analyze Option Chain Setup"):
                     (pdc - pdl) / daily_range if daily_range > 0 else 0.5
                 )
 
-                # Standard Pivot / Support & Resistance Calculations
+                # Pivot / S&R Calculations
                 pivot = (pdh + pdl + pdc) / 3
                 r1 = round((2 * pivot) - pdl, 2)
                 r2 = round(pivot + (pdh - pdl), 2)
                 s1 = round((2 * pivot) - pdh, 2)
                 s2 = round(pivot - (pdh - pdl), 2)
 
-                # CASE 1: Daily Closing Bias
-                case1_bias = "NEUTRAL"
-                if close_position >= 0.70:
-                    case1_bias = "BULLISH (Strong High Close)"
-                elif close_position <= 0.30:
-                    case1_bias = "BEARISH (Strong Low Close)"
+                # Biases
+                case1_bias = (
+                    "BULLISH"
+                    if close_position >= 0.70
+                    else ("BEARISH" if close_position <= 0.30 else "NEUTRAL")
+                )
+                case2_bias = (
+                    "BEARISH SWEEP"
+                    if (curr_high > pdh and curr_close < pdh)
+                    else (
+                        "BULLISH SWEEP"
+                        if (curr_low < pdl and curr_close > pdl)
+                        else "NO SWEEP"
+                    )
+                )
 
-                # CASE 2: Liquidity Sweep
-                case2_bias = "NO SWEEP"
-                if curr_high > pdh and curr_close < pdh:
-                    case2_bias = "BEARISH SWEEP (BSL Grabbed above PDH)"
-                elif curr_low < pdl and curr_close > pdl:
-                    case2_bias = "BULLISH SWEEP (SSL Grabbed below PDL)"
-
-                # CASE 3: Intraday Current Price Data
                 df_15m = ticker.history(period="2d", interval="15m")
                 current_price = (
                     df_15m.iloc[-1]["Close"] if not df_15m.empty else curr_close
                 )
 
-                final_bias = "NEUTRAL / NO CLEAR DIRECTION"
-                entry_price = 0.0
+                final_bias = "NEUTRAL"
+                entry_price = round(current_price, 2)
                 stop_loss = 0.0
                 target_1 = 0.0
                 target_2 = 0.0
-
                 option_action = "NO TRADE"
                 suggested_option = "N/A"
                 found_option_price = 0.0
 
-                # Determine Bias & Option Chain Strike for ₹2-3
                 if "BULLISH SWEEP" in case2_bias or (
                     "BULLISH" in case1_bias and current_price > pdc
                 ):
                     final_bias = "BUY (LONG)"
-                    entry_price = round(current_price, 2)
                     stop_loss = round(min(curr_low, pdl) * 0.998, 2)
                     target_1 = round(entry_price + (daily_range * 0.60), 2)
                     target_2 = round(
                         max(entry_price + (daily_range * 1.2), pdh), 2
                     )
 
-                    if selected_expiry:
+                    if selected_expiry and selected_expiry != "N/A":
                         try:
                             opt_chain = ticker.option_chain(selected_expiry)
-                            calls = opt_chain.calls
-                            otm_calls = calls[
-                                calls["strike"] > current_price
+                            otm_calls = opt_chain.calls[
+                                opt_chain.calls["strike"] > current_price
                             ].copy()
                             if not otm_calls.empty:
                                 otm_calls["diff"] = abs(
@@ -171,12 +154,9 @@ if st.button("Analyze Option Chain Setup"):
                                 best_row = otm_calls.loc[
                                     otm_calls["diff"].idxmin()
                                 ]
-                                strike_val = int(best_row["strike"])
+                                suggested_option = f"{int(best_row['strike'])} CE ({selected_expiry})"
                                 found_option_price = best_row["lastPrice"]
-                                option_action = "BUY OTM CALL (CE)"
-                                suggested_option = (
-                                    f"{strike_val} CE ({selected_expiry})"
-                                )
+                                option_action = "BUY OTM CALL"
                         except Exception:
                             pass
 
@@ -184,19 +164,17 @@ if st.button("Analyze Option Chain Setup"):
                     "BEARISH" in case1_bias and current_price < pdc
                 ):
                     final_bias = "SELL (SHORT)"
-                    entry_price = round(current_price, 2)
                     stop_loss = round(max(curr_high, pdh) * 1.002, 2)
                     target_1 = round(entry_price - (daily_range * 0.60), 2)
                     target_2 = round(
                         min(entry_price - (daily_range * 1.2), pdl), 2
                     )
 
-                    if selected_expiry:
+                    if selected_expiry and selected_expiry != "N/A":
                         try:
                             opt_chain = ticker.option_chain(selected_expiry)
-                            puts = opt_chain.puts
-                            otm_puts = puts[
-                                puts["strike"] < current_price
+                            otm_puts = opt_chain.puts[
+                                opt_chain.puts["strike"] < current_price
                             ].copy()
                             if not otm_puts.empty:
                                 otm_puts["diff"] = abs(
@@ -205,77 +183,34 @@ if st.button("Analyze Option Chain Setup"):
                                 best_row = otm_puts.loc[
                                     otm_puts["diff"].idxmin()
                                 ]
-                                strike_val = int(best_row["strike"])
+                                suggested_option = f"{int(best_row['strike'])} PE ({selected_expiry})"
                                 found_option_price = best_row["lastPrice"]
-                                option_action = "BUY OTM PUT (PE)"
-                                suggested_option = (
-                                    f"{strike_val} PE ({selected_expiry})"
-                                )
+                                option_action = "BUY OTM PUT"
                         except Exception:
                             pass
 
-                # Display Results
-                st.subheader(f"Results for: {symbol}")
+                # --- COMPACT TOP RESULTS DISPLAY ---
+                st.markdown(f"### 📌 Results: {symbol}")
 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Live Spot Price", f"₹{round(current_price, 2)}")
-                col2.metric("PDH (High)", f"₹{round(pdh, 2)}")
-                col3.metric("PDL (Low)", f"₹{round(pdl, 2)}")
+                # Metric Row 1
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Spot Price", f"₹{entry_price}")
+                m2.metric("PDH", f"₹{round(pdh, 2)}")
+                m3.metric("PDL", f"₹{round(pdl, 2)}")
 
-                # SUPPORT & RESISTANCE TABLE
-                st.markdown("---")
-                st.markdown("#### 📊 Support & Resistance Levels")
-
+                # Support & Resistance Table (Compact)
                 sr_data = {
-                    "Level Type": ["Supports", "Resistances"],
+                    "Type": ["Support", "Resistance"],
                     "Level 1": [f"S1: ₹{s1}", f"R1: ₹{r1}"],
                     "Level 2": [f"S2: ₹{s2}", f"R2: ₹{r2}"],
                 }
                 st.table(pd.DataFrame(sr_data))
 
-                st.markdown("---")
-                st.write(f"**[Case 1] Closing Bias:** {case1_bias}")
-                st.write(f"**[Case 2] Liquidity Sweep:** {case2_bias}")
-                st.markdown("---")
-
+                # Final Bias & Option Setup Box
                 if final_bias == "BUY (LONG)":
-                    st.success(f"### UNDERLYING BIAS: {final_bias}")
+                    st.success(
+                        f"**BIAS:** {final_bias} | **Action:** {option_action} -> **{suggested_option}** (LTP: ₹{round(found_option_price, 2)})"
+                    )
                 elif final_bias == "SELL (SHORT)":
-                    st.error(f"### UNDERLYING BIAS: {final_bias}")
-                else:
-                    st.warning(f"### UNDERLYING BIAS: {final_bias}")
-
-                if final_bias in ["BUY (LONG)", "SELL (SHORT)"]:
-                    st.markdown(
-                        "### 🎯 **OPTION CHAIN SE FETCH KIYA GAYA ₹2-3 SETUP**"
-                    )
-
-                    opt_col1, opt_col2 = st.columns(2)
-                    opt_col1.metric("Option Action", option_action)
-                    opt_col2.metric(
-                        "Suggested Strike (Option Chain)", suggested_option
-                    )
-
-                    st.markdown("---")
-                    res_col1, res_col2 = st.columns(2)
-                    res_col1.metric(
-                        "Option Last Traded Price (LTP)",
-                        f"₹{round(found_option_price, 2)}",
-                    )
-                    res_col2.metric("Spot Stop Loss", f"₹{round(stop_loss, 2)}")
-
-                    st.markdown("#### 🎯 Spot Target Levels")
-                    t_col1, t_col2 = st.columns(2)
-                    t_col1.metric(
-                        "Target 1 (Spot)",
-                        f"₹{round(target_1, 2)}",
-                        delta="60% Day Range",
-                    )
-                    t_col2.metric(
-                        "Target 2 (Spot)",
-                        f"₹{round(target_2, 2)}",
-                        delta="Full Range Sweep",
-                    )
-
-        except Exception as e:
-            st.error(f"Error processing data: {e}")
+                    st.error(
+                        f"**BIAS:** {final_bias} | **Action:** {option_action} -> **{suggested
